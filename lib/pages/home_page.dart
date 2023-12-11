@@ -284,7 +284,7 @@ class _HomePageState extends State<HomePage> {
               ),
               ListTile(
                 onTap: (){
-                  Navigator.pushReplacementNamed(context, '/history');
+                  Navigator.pushNamed(context, '/history');
                 },
                 leading: const Icon(
                   Icons.receipt_outlined,
