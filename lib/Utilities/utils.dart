@@ -22,10 +22,10 @@ class Utils{
     ScaffoldMessenger.of(buildContext).showSnackBar(snackBar);
   }
 
-  static displayToast(String messageText, BuildContext buildContext){
+  static displayToast(String messageText, BuildContext buildContext, {Toast? toastLength = Toast.LENGTH_SHORT, ToastGravity? gravity, Color? backgroundColor, Color? textColor, double? fontSize}){
     Fluttertoast.showToast(
       msg: messageText,
-      toastLength: Toast.LENGTH_SHORT,
+      toastLength: toastLength,
       gravity: ToastGravity.CENTER,
       backgroundColor: Colors.blueAccent,
       textColor: Colors.white,

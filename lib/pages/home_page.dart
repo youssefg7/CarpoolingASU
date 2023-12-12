@@ -57,17 +57,28 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  addToCart(){
-    setState(() {
-      addedToCart = true;
-    });
+  addToCart() async {
     if(tripDetails['rideType'] == "fromASU"){
-      Utils.displayToast("Trip Requested and Added to Cart, Confirm Payment before ${tripDetails['date'].substring(0,10)} 01:00PM", context);
+      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${tripDetails['date'].substring(0,10)} 01:00PM", context);
     }
     else{
-      Utils.displayToast("Trip Requested and Added to Cart, Confirm Payment before ${tripDetails['date'].substring(0,10)} 10:00PM", context);
+      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${tripDetails['date'].substring(0,10)} 10:00PM", context);
     }
+    DocumentReference reservation = await FirebaseFirestore.instance.collection('reservations').add(
+        {
+          'userId': FirebaseAuth.instance.currentUser?.uid,
+          'tripId': tripDetails['id'],
+          'status': 'pending',
+          'paymentStatus': 'pending',
+          'paymentMethod': '',
+        });
+    FirebaseFirestore.instance.collection('reservations').doc(reservation.id).update(
+        {
+          'uid': reservation.id,
+        }
+    );
   }
+
 
   updateMapStyle(
       GoogleMapController googleMapController, String mapStyleName) async {
@@ -304,7 +315,7 @@ class _HomePageState extends State<HomePage> {
               ),
               ListTile(
                 onTap: (){
-                  Navigator.pushReplacementNamed(context, '/wallet');
+                  Navigator.pushNamed(context, '/wallet');
                 },
                 leading: const Icon(
                   Icons.monetization_on_outlined,
@@ -405,7 +416,7 @@ class _HomePageState extends State<HomePage> {
                           children: [
                     GestureDetector(
                       onTap: () {
-                        Navigator.pushReplacementNamed(context, "/cartPage");
+                        Navigator.pushNamed(context, "/cartPage");
                       },
                       child: Container(
                           decoration: BoxDecoration(

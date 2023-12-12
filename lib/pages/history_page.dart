@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../Utilities/utils.dart';
+
 class HistoryPage extends StatefulWidget {
   const HistoryPage({Key? key}) : super(key: key);
 
@@ -70,6 +72,7 @@ class _HistoryPageState extends State<HistoryPage> {
       Map<String, dynamic> reservationData = pastReservations.docs.firstWhere((element) => element['tripId'] == data['id']).data() as Map<String, dynamic>;
       data['driverName'] = driverData['username'];
       data['driverPhone'] = driverData['phone'];
+      data['driverEmail'] = driverData['email'];
       data['driverVehicleType'] = driverData['vehicleType'];
       data['driverVehicleColor'] = driverData['vehicleColor'];
       data['driverVehicleModel'] = driverData['vehicleModel'];
@@ -78,10 +81,6 @@ class _HistoryPageState extends State<HistoryPage> {
       data['paymentMethod'] = reservationData['paymentMethod'];
       data['paymentStatus'] = reservationData['paymentStatus'];
       data['requestStatus'] = reservationData['status'];
-
-      if(data['requestStatus'] !='accepted'){
-        continue;
-      }
 
       trips.add(data);
       }
@@ -252,8 +251,8 @@ class _HistoryPageState extends State<HistoryPage> {
                   ),
 
                   const SizedBox(width: 10),
-                  snapshot['paymentMethod']=='cash'?Icon(Icons.payments_outlined)
-                      :Icon(Icons.credit_card_outlined),
+                  snapshot['paymentMethod']=='cash'?const Icon(Icons.payments_outlined)
+                      :const Icon(Icons.credit_card_outlined),
                   Text(
                     snapshot['paymentMethod'].toString().isEmpty?'Pending Payment'
                         :snapshot['paymentMethod'].toString().toUpperCase(),
@@ -265,7 +264,49 @@ class _HistoryPageState extends State<HistoryPage> {
                   ),
                 ],
               ),
+
               const SizedBox(height: 10),
+              snapshot['paymentStatus'] == 'paid'
+                  ? Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    IconButton(icon: const Icon(Icons.phone), color: Colors.green,
+                        onPressed: () async{
+                          await Utils.makePhoneCall(snapshot['driverPhone']!);
+                        }),
+                    const Icon(Icons.person),
+                    const SizedBox(width: 10),
+                    Text("${snapshot['driverName'].toString()} - ${snapshot['driverEmail'].toString().toUpperCase()}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
+                  ]
+              ):const SizedBox(),
+              const SizedBox(height: 10),
+              snapshot['paymentStatus'] == 'paid'
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.pending_actions_outlined),
+                        const Text(
+                          'Request Status:',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          snapshot['requestStatus'].toString().toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: (snapshot['requestStatus'].toString() == 'rejected')
+                                ? Colors.red
+                                : (snapshot['requestStatus'].toString() == 'accepted')
+                                ? Colors.green
+                                : Colors.white,
+                          ),
+                        ),
+                      ],
+                    ):const SizedBox(),
             ],
           ),
         ),

@@ -5,8 +5,10 @@ import 'package:carpool_flutter/authentication/splash_screen.dart';
 import 'package:carpool_flutter/pages/cart_page.dart';
 import 'package:carpool_flutter/pages/history_page.dart';
 import 'package:carpool_flutter/pages/home_page.dart';
+import 'package:carpool_flutter/pages/payment_page.dart';
 import 'package:carpool_flutter/pages/profile_page.dart';
 import 'package:carpool_flutter/pages/search_page.dart';
+import 'package:carpool_flutter/pages/wallet_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -53,6 +55,8 @@ class MyApp extends StatelessWidget {
         '/history': (context) => const HistoryPage(),
         '/search': (context) => const SearchPage(),
         '/profile': (context) => const ProfilePage(),
+        '/payment': (context) => const PaymentPage(),
+        '/wallet': (context) => const WalletPage(),
       },
       initialRoute: '/',
     );

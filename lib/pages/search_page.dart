@@ -87,23 +87,26 @@ class _SearchPageState extends State<SearchPage> {
   }
 
 
-  addToCart(trip){
+  addToCart(trip) async {
     if(rideType == "fromASU"){
       Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${trip['date'].substring(0,10)} 01:00PM", context);
     }
     else{
       Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${trip['date'].substring(0,10)} 10:00PM", context);
     }
-    FirebaseFirestore.instance.collection('reservations').add(
+    DocumentReference reservation = await FirebaseFirestore.instance.collection('reservations').add(
       {
         'userId': FirebaseAuth.instance.currentUser?.uid,
         'tripId': trip['id'],
         'status': 'pending',
         'paymentStatus': 'pending',
         'paymentMethod': '',
-      }
-    );
-
+      });
+      FirebaseFirestore.instance.collection('reservations').doc(reservation.id).update(
+        {
+          'uid': reservation.id,
+        }
+      );
   }
   Future<Map<String, dynamic>> getDriverData(driverId) async{
     DocumentSnapshot doc = await FirebaseFirestore.instance.collection('users').doc(driverId).get();
