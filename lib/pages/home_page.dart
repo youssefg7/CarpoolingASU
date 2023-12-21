@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:carpool_flutter/Utilities/global_var.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:carpool_flutter/data/Models/ReservationModel.dart';
+import 'package:carpool_flutter/data/Models/UserModel.dart';
+import 'package:carpool_flutter/data/Repositories/UserRepository.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +15,9 @@ import '../Utilities/location_serives.dart';
 import '../Utilities/utils.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 
+import '../data/Models/TripModel.dart';
+import '../data/Repositories/ReservationRepository.dart';
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -21,6 +26,15 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  UserRepository userRepository = UserRepository();
+  Student user = Student(
+    id: '',
+    username: '',
+    email: '',
+    phone: '',
+    isDriver: false,
+  );
+  ReservationRepository reservationRepository = ReservationRepository();
   final Completer<GoogleMapController> googleMapControllerCompleter =
       Completer<GoogleMapController>();
   late GoogleMapController googleMapController;
@@ -35,7 +49,6 @@ class _HomePageState extends State<HomePage> {
   GlobalKey<ScaffoldState> sandwichKey = GlobalKey<ScaffoldState>();
   GlobalKey<ScaffoldState> cartKey = GlobalKey<ScaffoldState>();
   bool serviceEnabled = false;
-  Map<String, dynamic> userInfo = {};
   int price = 0;
   String duration = "0 mins";
   String distance = "0 kms";
@@ -48,7 +61,9 @@ class _HomePageState extends State<HomePage> {
   FocusNode dropoffFocus = FocusNode();
   bool floatingButtonVisibility = true;
   bool isTripView = false;
-  late Map<String, dynamic> tripDetails;
+  late Trip tripDetails;
+  late Student driverDetails;
+
   bool addedToCart = false;
 
   @override
@@ -58,30 +73,29 @@ class _HomePageState extends State<HomePage> {
   }
 
   addToCart() async {
-    if(tripDetails['rideType'] == "fromASU"){
-      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${tripDetails['date'].substring(0,10)} 01:00PM", context);
+    if(tripDetails.rideType == "fromASU"){
+      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${Utils.formatDate(tripDetails.date)} 01:00PM", context);
     }
     else{
-      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${tripDetails['date'].substring(0,10)} 10:00PM", context);
+      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${Utils.formatDate(tripDetails.date)} 10:00PM", context);
     }
-    DocumentReference reservation = await FirebaseFirestore.instance.collection('reservations').add(
-        {
-          'userId': FirebaseAuth.instance.currentUser?.uid,
-          'tripId': tripDetails['id'],
-          'status': 'pending',
-          'paymentStatus': 'pending',
-          'paymentMethod': '',
-        });
-    FirebaseFirestore.instance.collection('reservations').doc(reservation.id).update(
-        {
-          'uid': reservation.id,
-        }
+
+    Reservation reservation = Reservation(
+      id: '',
+      tripId: tripDetails.id,
+      userId: FirebaseAuth.instance.currentUser!.uid,
+      status: 'pending',
+      paymentStatus: 'pending',
+      paymentMethod: '',
     );
+    reservationRepository.addReservation(reservation);
+
+    setState(() {
+      addedToCart = true;
+    });
   }
 
-
-  updateMapStyle(
-      GoogleMapController googleMapController, String mapStyleName) async {
+  updateMapStyle(GoogleMapController googleMapController, String mapStyleName) async {
     ByteData byteData =
         await rootBundle.load('lib/map_styles/${mapStyleName}_style.json');
     var list = byteData.buffer
@@ -95,35 +109,14 @@ class _HomePageState extends State<HomePage> {
         desiredAccuracy: LocationAccuracy.bestForNavigation);
     currentUserLatLng =
         LatLng(currentUserPosition!.latitude, currentUserPosition!.longitude);
-    // CameraPosition cameraPosition =
-    //     CameraPosition(target: currentUserLatLng!, zoom: 15);
-    // googleMapController
-    //     .animateCamera(CameraUpdate.newCameraPosition(cameraPosition));
   }
 
   getUserInfo() async {
-    String uid = FirebaseAuth.instance.currentUser!.uid;
-    try {
-      DocumentSnapshot documentSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-
-      if (documentSnapshot.exists) {
-        Map<String, dynamic> data = documentSnapshot.data() as Map<String, dynamic>;
-        setState(() {
-          userInfo = data;
-        });
-      } else {
-        FirebaseAuth.instance.signOut();
-        Navigator.pushReplacementNamed(context, '/login');
-      }
-    } catch (e) {
-      // Handle any potential errors
-      Utils.displayToast('Error fetching user data: $e',context);
-    }
+    user = await userRepository.getCurrentUser();
+    setState(() {
+      user = user;
+    });
   }
-
 
   addPolyLine(List<LatLng> polylineCoordinates) {
     PolylineId id = const PolylineId("poly");
@@ -145,19 +138,15 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  Future<void> addTripRoute(Map<String, dynamic> snapshot) async {
+  Future<void> addTripRoute(Trip trip) async {
     FocusManager.instance.primaryFocus?.unfocus();
-    String rideType = snapshot['rideType'];
+    String rideType = trip.rideType;
     if (rideType == "fromASU") {
       pickupLatLng = defaultLocation;
-      dropoffLatLng = LatLng(
-          double.parse(snapshot['destinationLat']),
-          double.parse(snapshot['destinationLng']));
+      dropoffLatLng = LatLng(trip.destinationLat, trip.destinationLng);
     }
     else {
-      pickupLatLng = LatLng(
-          double.parse(snapshot['startLat']),
-          double.parse(snapshot['startLng']));
+      pickupLatLng = LatLng(trip.startLat, trip.startLng);
       dropoffLatLng = defaultLocation;
     }
     clearMap();
@@ -191,16 +180,18 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void initState() {
+    getUserInfo();
     super.initState();
     getCurrentLocation();
-    getUserInfo();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (ModalRoute.of(context)!.settings.arguments != null) {
         var args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
-        var trip = args['tripToView'] as Map<String, dynamic>;
+        var tripToView = args['tripToView'] as Map<String, dynamic>;
+        Trip trip = tripToView['trip'];
         addTripRoute(trip);
         setState(() {
           tripDetails = trip;
+          driverDetails = tripToView['driver'];
           isTripView = true;
           panelController.open();
         });
@@ -220,9 +211,9 @@ class _HomePageState extends State<HomePage> {
                 Row(children: [
                   const Icon(Icons.date_range_sharp,
                       color: Colors.black),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 5),
                   Text(
-                      tripDetails["date"].substring(0, 10),
+                      Utils.formatDate(tripDetails.date),
                       style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -232,9 +223,9 @@ class _HomePageState extends State<HomePage> {
                   children: [
                     const Icon(Icons.watch_later_outlined,
                         color: Colors.black),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 5),
                     Text(
-                        tripDetails["rideType"] ==
+                        tripDetails.rideType ==
                             'toASU'
                             ? '07:30 AM'
                             : '05:30 PM',
@@ -259,7 +250,7 @@ class _HomePageState extends State<HomePage> {
               onPressed: (){
                 Navigator.pop(context);
               },
-              icon: Icon(Icons.arrow_back_ios_new, color: Colors.black))
+              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black))
               :null,
         ),
         key: sandwichKey,
@@ -274,8 +265,7 @@ class _HomePageState extends State<HomePage> {
               ),
               ListTile(
                 onTap: () {
-                  Navigator.pushReplacementNamed(context, '/profile',
-                      arguments: {"user": userInfo});
+                  Navigator.pushReplacementNamed(context, '/profile');
                 },
                 leading: const Icon(
                   Icons.person,
@@ -283,7 +273,7 @@ class _HomePageState extends State<HomePage> {
                   size: 40,
                 ),
                 title: Text(
-                  userInfo["username"] ?? "username",
+                  user.username,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -313,26 +303,6 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(
                 height: 20,
               ),
-              ListTile(
-                onTap: (){
-                  Navigator.pushNamed(context, '/wallet');
-                },
-                leading: const Icon(
-                  Icons.monetization_on_outlined,
-                  color: Colors.white,
-                  size: 34,
-                ),
-                title: const Text(
-                  "Wallet",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                  ),
-                ),
-              ),
-              const SizedBox(
-                height: 20,
-              ),
               const Divider(
                 height: 1,
                 color: Colors.white,
@@ -344,6 +314,7 @@ class _HomePageState extends State<HomePage> {
               ListTile(
                 onTap: () {
                   FirebaseAuth.instance.signOut();
+                  userRepository.deleteCurrentUser();
                   Navigator.pushReplacementNamed(context, '/login');
                 },
                 leading: IconButton(
@@ -415,7 +386,9 @@ class _HomePageState extends State<HomePage> {
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
                     GestureDetector(
-                      onTap: () {
+                      onTap: () async{
+                        if(!(await Utils.checkInternetConnection(context))) {
+                                  return;}
                         Navigator.pushNamed(context, "/cartPage");
                       },
                       child: Container(
@@ -442,7 +415,9 @@ class _HomePageState extends State<HomePage> {
                           )),
                     ),
                     GestureDetector(
-                        onTap: () {
+                        onTap: () async{
+                          if(!(await Utils.checkInternetConnection(context))) {
+                            return;}
                           Navigator.pushReplacementNamed(context, "/search",
                               arguments: {"rideType": "toASU"});
                         },
@@ -468,7 +443,9 @@ class _HomePageState extends State<HomePage> {
                           ),
                         )),
                     GestureDetector(
-                      onTap: () {
+                      onTap: () async{
+                        if(!(await Utils.checkInternetConnection(context))) {
+                          return;}
                         Navigator.pushReplacementNamed(context, "/search",
                             arguments: {"rideType": "fromASU"});
                       },
@@ -529,7 +506,7 @@ class _HomePageState extends State<HomePage> {
                         const Icon(Icons.location_pin, color: Colors.black),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: Text("From: ${tripDetails["start"]}",
+                          child: Text("From: ${tripDetails.start}",
                               style: const TextStyle(
                                   fontSize: 18, color: Colors.black)),
                         ),
@@ -539,7 +516,7 @@ class _HomePageState extends State<HomePage> {
                         const Icon(Icons.location_pin, color: Colors.black),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: Text("To: ${tripDetails["destination"]}",
+                          child: Text("To: ${tripDetails.destination}",
                               style: const TextStyle(
                                   fontSize: 18, color: Colors.black)),
                         ),
@@ -551,7 +528,7 @@ class _HomePageState extends State<HomePage> {
                           children: [
                             const Icon(Icons.route, color: Colors.black),
                             Text(
-                                tripDetails['distance'],
+                                tripDetails.distance,
                                 style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
@@ -559,14 +536,14 @@ class _HomePageState extends State<HomePage> {
                             const SizedBox(width: 10),
                             const Icon(Icons.drive_eta, color: Colors.black),
                             Text(
-                                tripDetails['duration'],
+                                tripDetails.duration,
                                 style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.black)),
                             const SizedBox(width: 10),
                             const Icon(Icons.attach_money, color: Colors.black),
-                            Text(tripDetails['price'],
+                            Text(tripDetails.price,
                                 style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
@@ -577,22 +554,22 @@ class _HomePageState extends State<HomePage> {
                           children: [
                             IconButton(icon: const Icon(Icons.phone), color: Colors.green,
                                 onPressed: () async{
-                                  await Utils.makePhoneCall(tripDetails['driverPhone']!);
+                                  await Utils.makePhoneCall(driverDetails.phone);
                                 }),
                             const Icon(Icons.person, color: Colors.black),
                             const SizedBox(width: 10),
-                            Text(tripDetails['driverName']!, style: const TextStyle(fontSize: 18, color: Colors.black)),
+                            Text(driverDetails.username, style: const TextStyle(fontSize: 18, color: Colors.black)),
                           ]
                       ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Icon(tripDetails['driverVehicleType']=='Car'?Icons.directions_car:Icons.motorcycle_outlined, color: Colors.red),
+                          Icon(driverDetails.vehicleType=='Car'?Icons.directions_car:Icons.motorcycle_outlined, color: Colors.red),
                           const SizedBox(width: 10),
-                          Text("${tripDetails['driverVehicleColor']!} ${tripDetails['driverVehicleModel']!}", style: const TextStyle(fontSize: 18, color: Colors.black)),
+                          Text("${driverDetails.vehicleColor!} ${driverDetails.vehicleModel!}", style: const TextStyle(fontSize: 18, color: Colors.black)),
                           const Text(" - ", style: TextStyle(fontSize: 18, color: Colors.black)),
-                          Text("(${tripDetails['driverVehiclePlates']!})", style: const TextStyle(fontSize: 18, color: Colors.black)),
+                          Text("(${driverDetails.vehiclePlates})", style: const TextStyle(fontSize: 18, color: Colors.black)),
                         ],
                       ),
                       const SizedBox(height: 10),
@@ -628,7 +605,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ):
                       ElevatedButton.icon(
-                        onPressed: addToCart,
+                        onPressed: addedToCart?null:addToCart,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blueAccent,
                           shadowColor: Colors.white,

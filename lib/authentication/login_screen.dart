@@ -1,9 +1,9 @@
-import 'package:carpool_flutter/Utilities/global_var.dart';
 import 'package:carpool_flutter/Utilities/utils.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:carpool_flutter/data/Repositories/UserRepository.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../data/Models/UserModel.dart';
 import '../widgets/loading_dialog.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -14,6 +14,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  UserRepository userRepository = UserRepository();
+
   TextEditingController emailTextEditingController = TextEditingController();
   TextEditingController passwordTextEditingController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -31,42 +33,36 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       final User? userFirebase = (await FirebaseAuth.instance
-              .signInWithEmailAndPassword(
+          .signInWithEmailAndPassword(
         email: "${emailTextEditingController.text.trim()}@eng.asu.edu.eg",
         password: passwordTextEditingController.text.trim(),
       )
-              .catchError((error) {
+          .catchError((error) {
         Navigator.pop(context);
         Utils.displaySnack(error.toString(), context);
-      }))
-          .user;
+      })).user;
 
       if (!context.mounted) return;
       Navigator.pop(context);
 
       if (userFirebase != null) {
-        DocumentReference userRef = FirebaseFirestore.instance.collection('users').doc(userFirebase.uid);
-
         try {
-          DocumentSnapshot snapshot = await userRef.get();
-
-          if(snapshot.exists) {
-            username = snapshot.get("username");
+          Student? user = await userRepository.getUser(userFirebase.uid);
+          if(user != null) {
             if (!FirebaseAuth.instance.currentUser!.emailVerified) {
               Utils.displayToast("Email not verified, please verify first.", context);
               Navigator.pushReplacementNamed(context, "/verifyEmail");
             } else {
+              userRepository.setCurrentUser(user);
               Navigator.pushReplacementNamed(context, "/home");
             }
           } else {
             FirebaseAuth.instance.signOut();
-            Utils.displaySnack(
-                "Email not registered. Please create an account!", context);
+            Utils.displaySnack("Email not registered. Please create an account!", context);
           }
-        }catch(e) {
+        } catch(e) {
           FirebaseAuth.instance.signOut();
-          Utils.displaySnack(
-              "Email not registered. Please create an account!", context);
+          Utils.displaySnack("Email not registered. Please create an account!", context);
         }
       }
     }

@@ -1,3 +1,5 @@
+import 'package:carpool_flutter/data/Repositories/CreditCardRepository.dart';
+import 'package:carpool_flutter/data/Repositories/ReservationRepository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -5,6 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 
 import '../Utilities/utils.dart';
+import '../data/Models/CreditCardModel.dart';
+import '../data/Models/ReservationModel.dart';
+import '../data/Models/TripModel.dart';
 
 class PaymentPage extends StatefulWidget {
   const PaymentPage({super.key});
@@ -14,20 +19,16 @@ class PaymentPage extends StatefulWidget {
 }
 
 class _PaymentPageState extends State<PaymentPage> {
-  Future<List<Map<String, dynamic>>> getStoredCards() async {
-    var userId = FirebaseAuth.instance.currentUser?.uid;
-    QuerySnapshot querySnapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(userId)
-        .collection('cards')
-        .get();
-    List<Map<String, dynamic>> cards = [];
-    for (QueryDocumentSnapshot doc in querySnapshot.docs) {
-      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-      data['id'] = doc.id;
-      cards.add(data);
-    }
-    return cards;
+  late Trip trip ;
+  late Reservation reservation;
+  bool saveCard = false;
+  List<CreditCard> savedCards = [];
+  CreditCard? selectedCreditCard;
+  ReservationRepository reservationRepository = ReservationRepository();
+  CreditCardRepository creditCardRepository = CreditCardRepository();
+
+  Future<List<CreditCard>> getStoredCards() async {
+    return await creditCardRepository.getCreditCards();
   }
 
   late Map<String, dynamic> tripDetails;
@@ -45,23 +46,51 @@ class _PaymentPageState extends State<PaymentPage> {
       _submitted = true;
     });
     if(paymentMethod == 'cash'){
-      FirebaseFirestore.instance.collection('reservations').doc(tripDetails['reservationId']).update({
-        'paymentStatus': 'paid',
-        'paymentMethod': 'cash',
-      });
+      reservation.paymentStatus = 'paid';
+      reservation.paymentMethod = 'cash';
+      reservationRepository.updateReservation(reservation);
+
       Navigator.pop(context);
       Utils.displayToast("Request Sent, Wait for Driver Confirmation!", context, toastLength: Toast.LENGTH_LONG);
       return;
-    }
-    if(_formKey.currentState!.validate()){
-      print('valid');
     }else{
-      print('invalid');
+      if (selectedCreditCard == null){
+        if(_formKey.currentState!.validate()){
+          reservation.paymentStatus = 'paid';
+          reservation.paymentMethod = 'creditCard';
+          reservationRepository.updateReservation(reservation);
+          if(saveCard){
+            CreditCard creditCard = CreditCard(
+              id: '',
+              userId: FirebaseAuth.instance.currentUser!.uid,
+              cardNumber: cardNumberController.text,
+              cardHolderName: cardHolderNameController.text,
+              expiryMonth: int.parse(expiryMonthController.text),
+              expiryYear: int.parse(expiryYearController.text),
+              cvv: cvvController.text,
+            );
+            creditCardRepository.addCreditCard(creditCard);
+          }
+          Navigator.pop(context);
+          Utils.displayToast("Request Sent, Wait for Driver Confirmation!", context, toastLength: Toast.LENGTH_LONG);
+          return;
+        }
+      }
+      else{
+        reservation.paymentStatus = 'paid';
+        reservation.paymentMethod = 'creditCard';
+        reservationRepository.updateReservation(reservation);
+        Navigator.pop(context);
+        Utils.displayToast("Request Sent, Wait for Driver Confirmation!", context, toastLength: Toast.LENGTH_LONG);
+        return;
+      }
     }
   }
   @override
   Widget build(BuildContext context) {
     tripDetails = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    trip = tripDetails['trip'];
+    reservation = tripDetails['reservation'];
     return Scaffold(
       appBar: AppBar(
         title: const Text('Payment Page'),
@@ -100,7 +129,7 @@ class _PaymentPageState extends State<PaymentPage> {
                             const Icon(Icons.date_range_sharp),
                             const SizedBox(width: 10),
                             Text(
-                              tripDetails['date'].toString().substring(0, 10),
+                              Utils.formatDate(trip.date),
                               style: const TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
@@ -113,7 +142,7 @@ class _PaymentPageState extends State<PaymentPage> {
                             const Icon(Icons.watch_later_outlined),
                             const SizedBox(width: 10),
                             Text(
-                              tripDetails['rideType'] == 'toASU'
+                              trip.rideType == 'toASU'
                                   ? '07:30 AM'
                                   : '05:30 PM',
                               style: const TextStyle(
@@ -132,7 +161,7 @@ class _PaymentPageState extends State<PaymentPage> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            "From: ${tripDetails['start']}",
+                            "From: ${trip.start}",
                             style: const TextStyle(fontSize: 18),
                           ),
                         ),
@@ -145,7 +174,7 @@ class _PaymentPageState extends State<PaymentPage> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            "To: ${tripDetails['destination']}",
+                            "To: ${trip.destination}",
                             style: const TextStyle(fontSize: 18),
                           ),
                         ),
@@ -204,6 +233,54 @@ class _PaymentPageState extends State<PaymentPage> {
                         ),
                       ),
                     ]))),
+            paymentMethod == 'creditCard'
+            ?
+            FutureBuilder(
+                future: getStoredCards(),
+                builder:
+                    (BuildContext context, AsyncSnapshot<List<CreditCard>> snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const SizedBox();
+                  }
+                  if (snapshot.hasError) {
+                    return const Center(
+                      child: Text('Error'),
+                    );
+                  }
+                  else {
+                    if(snapshot.data!.isEmpty){
+                      return const SizedBox();
+                    }
+
+                    savedCards = snapshot.data!;
+                    return DropdownButtonFormField(
+                      decoration: InputDecoration(
+                        labelText: "Choose from Saved Credit Cards",
+                        labelStyle: const TextStyle(fontSize: 16),
+                        prefixIcon: const Icon(Icons.credit_card),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(40),
+                          borderSide: const BorderSide(
+                            width: 2,
+                            color: Colors.purple,
+                          ),
+                        ),
+                      ),
+                      items: savedCards.map((e) =>
+                          DropdownMenuItem(
+                              value: e,
+                              child: Text(
+                                  "**** **** **** ${e.cardNumber.substring(
+                                      12, 15)}"))).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          selectedCreditCard = value;
+                        });
+                      },);
+                  }
+                }
+            )
+            : const SizedBox(),
             paymentMethod == 'creditCard'
                 ? Card(
                     elevation: 10,
@@ -341,6 +418,20 @@ class _PaymentPageState extends State<PaymentPage> {
                                 }
                                 return null;
                               },
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Checkbox(
+                                  value: saveCard,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      saveCard = value!;
+                                    });
+                                  },
+                                ),
+                                const Text('Save Card for future payments'),
+                              ],
                             ),
                           ],
                         ),

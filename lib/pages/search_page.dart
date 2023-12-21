@@ -1,12 +1,13 @@
-import 'package:carpool_flutter/Utilities/global_var.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:carpool_flutter/data/Models/ReservationModel.dart';
+import 'package:carpool_flutter/data/Models/UserModel.dart';
+import 'package:carpool_flutter/data/Repositories/ReservationRepository.dart';
+import 'package:carpool_flutter/data/Repositories/TripRepository.dart';
+import 'package:carpool_flutter/data/Repositories/UserRepository.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:google_places_flutter/google_places_flutter.dart';
-import 'package:google_places_flutter/model/prediction.dart';
 import 'package:intl/intl.dart';
-
 import '../Utilities/utils.dart';
+import '../data/Models/TripModel.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({Key? key}) : super(key: key);
@@ -16,28 +17,14 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage> {
-  TextEditingController pickupTextEditingController = TextEditingController();
-  TextEditingController dropoffTextEditingController = TextEditingController();
-  TextEditingController searchTextEditingController = TextEditingController();
+  ReservationRepository reservationRepository = ReservationRepository();
+  UserRepository userRepository = UserRepository();
+  TripRepository tripRepository = TripRepository();
   String rideType = "toASU";
-  FocusNode pickupFocus = FocusNode();
-  FocusNode dropoffFocus = FocusNode();
 
   List<Map<String, dynamic>> filteredTrips = [];
 
   void toggleRideType() {
-    String tempPickup = pickupTextEditingController.text;
-    String tempDropoff = dropoffTextEditingController.text;
-
-    if (rideType == "fromASU") {
-      pickupTextEditingController.text = tempDropoff;
-      dropoffTextEditingController.text = "Faculty of Engineering, ASU";
-      FocusScope.of(context).requestFocus(pickupFocus);
-    } else {
-      pickupTextEditingController.text = "Faculty of Engineering, ASU";
-      dropoffTextEditingController.text = tempPickup;
-      FocusScope.of(context).requestFocus(dropoffFocus);
-    }
     setState(() {
       rideType = rideType == "toASU" ? "fromASU" : "toASU";
     });
@@ -72,6 +59,7 @@ class _SearchPageState extends State<SearchPage> {
         initialDay = now;
       }
     }
+
     return showDatePicker(
       context: context,
       initialDate: initialDay,
@@ -87,88 +75,52 @@ class _SearchPageState extends State<SearchPage> {
   }
 
 
-  addToCart(trip) async {
+  addToCart(Trip trip) async {
     if(rideType == "fromASU"){
-      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${trip['date'].substring(0,10)} 01:00PM", context);
+      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${Utils.formatDate(trip.date)} 01:00PM", context);
     }
     else{
-      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${trip['date'].substring(0,10)} 10:00PM", context);
+      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${Utils.formatDate(trip.date)} 10:00PM", context);
     }
-    DocumentReference reservation = await FirebaseFirestore.instance.collection('reservations').add(
-      {
-        'userId': FirebaseAuth.instance.currentUser?.uid,
-        'tripId': trip['id'],
-        'status': 'pending',
-        'paymentStatus': 'pending',
-        'paymentMethod': '',
-      });
-      FirebaseFirestore.instance.collection('reservations').doc(reservation.id).update(
-        {
-          'uid': reservation.id,
-        }
-      );
+    Reservation reservation = Reservation(
+      userId: FirebaseAuth.instance.currentUser!.uid,
+      tripId: trip.id,
+      status: 'pending',
+      paymentStatus: 'pending',
+      paymentMethod: '',
+    );
+    await reservationRepository.addReservation(reservation);
   }
-  Future<Map<String, dynamic>> getDriverData(driverId) async{
-    DocumentSnapshot doc = await FirebaseFirestore.instance.collection('users').doc(driverId).get();
-    return doc.data() as Map<String, dynamic>;
-  }
+
 
   Future<List<Map<String, dynamic>>> getTripsData() async {
     var userId = FirebaseAuth.instance.currentUser?.uid;
 
-    QuerySnapshot pastReservations = await FirebaseFirestore.instance
-        .collection('reservations')
-        .where('userId', isEqualTo: userId)
-        .get();
-    List<String> pastTripsIds = pastReservations.docs.map((e) => e['tripId'].toString()).toList();
-    print(pastTripsIds);
-    QuerySnapshot querySnapshot;
-    if(pastTripsIds.isNotEmpty) {
-      querySnapshot = await FirebaseFirestore.instance
-          .collection('trips')
-          .where('uid', whereNotIn: pastTripsIds)
-          // .where('driverId', isNotEqualTo: userId)
-          .where('status', isEqualTo: 'upcoming')
-          .where('rideType', isEqualTo: rideType)
-          .get();
-    }
-    else{
-      querySnapshot = await FirebaseFirestore.instance
-          .collection('trips')
-          .where('driverId', isNotEqualTo: userId)
-          .where('status', isEqualTo: 'upcoming')
-          .where('rideType', isEqualTo: rideType)
-          .get();
-    }
-    List<Map<String, dynamic>> trips = [];
-    for (QueryDocumentSnapshot doc in querySnapshot.docs) {
-      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-      data['id'] = doc.id;
-      Map<String, dynamic> driverData = await getDriverData(data['driverId']);
-      data['driverName'] = driverData['username'];
-      data['driverPhone'] = driverData['phone'];
-      data['driverVehicleType'] = driverData['vehicleType'];
-      data['driverVehicleColor'] = driverData['vehicleColor'];
-      data['driverVehicleModel'] = driverData['vehicleModel'];
-      data['driverVehiclePlates'] = driverData['vehiclePlates'];
-      data['addedToCart'] = false;
-
-      if(data['driverId'] == userId){
+    List<Trip> trips = await tripRepository.searchTrips(userId!, rideType);
+    List<Map<String, dynamic>> tripsData = [];
+    for (Trip trip in trips) {
+      Map<String,dynamic> data = {};
+      data['trip'] = trip;
+      Student? driver = await userRepository.getUser(trip.driverId);
+      if(driver?.id == userId){
         continue;
       }
-      trips.add(data);
+      data['driver'] = driver;
+      data['addedToCart'] = false;
+
+      tripsData.add(data);
     }
-    return trips;
+    return tripsData;
   }
 
-  List<Map<String, dynamic>> filterTripsByDate(List<Map<String, dynamic>> trips, DateTime? tripDate){
+  List<Map<String, dynamic>> filterTripsByDate(List<Map<String, dynamic>> tripsData, DateTime? tripDate){
     List<Map<String, dynamic>> filteredTrips = [];
     if(tripDate == null){
-      return trips;
+      return tripsData;
     }
-    for(Map<String, dynamic> trip in trips){
-      if(trip['date'].toString().substring(0,10) == tripDate.toString().substring(0,10)){
-        filteredTrips.add(trip);
+    for(Map<String, dynamic> tripData in tripsData){
+      if(tripData['trip'].date == tripDate){
+        filteredTrips.add(tripData);
       }
     }
     return filteredTrips;
@@ -197,6 +149,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget buildTripCard(Map<String, dynamic> snapshot, BuildContext context) {
+    Trip trip = snapshot['trip'];
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 5, 0, 5),
       child: Card(
@@ -221,9 +174,7 @@ class _SearchPageState extends State<SearchPage> {
                       const Icon(Icons.date_range_sharp),
                       const SizedBox(width: 10),
                       Text(
-                        snapshot['date']
-                            .toString()
-                            .substring(0, 10),
+                        Utils.formatDate(trip.date),
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -236,7 +187,7 @@ class _SearchPageState extends State<SearchPage> {
                       const Icon(Icons.watch_later_outlined),
                       const SizedBox(width: 10),
                       Text(
-                        snapshot['rideType'] == 'toASU'
+                        trip.rideType == 'toASU'
                             ? '07:30 AM'
                             : '05:30 PM',
                         style: const TextStyle(
@@ -255,7 +206,7 @@ class _SearchPageState extends State<SearchPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      "From: ${snapshot['start']}",
+                      "From: ${trip.start}",
                       style: const TextStyle(fontSize: 18),
                     ),
                   ),
@@ -268,7 +219,7 @@ class _SearchPageState extends State<SearchPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      "To: ${snapshot['destination']}",
+                      "To: ${trip.destination}",
                       style: const TextStyle(fontSize: 18),
                     ),
                   ),
@@ -281,7 +232,7 @@ class _SearchPageState extends State<SearchPage> {
                 children: [
                   const Icon(Icons.route),
                   Text(
-                    snapshot['distance'].toString(),
+                    trip.distance,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -290,7 +241,7 @@ class _SearchPageState extends State<SearchPage> {
                   const SizedBox(width: 10),
                   const Icon(Icons.drive_eta),
                   Text(
-                    snapshot['duration'].toString(),
+                    trip.duration,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -299,7 +250,7 @@ class _SearchPageState extends State<SearchPage> {
                   const SizedBox(width: 10),
                   const Icon(Icons.attach_money),
                   Text(
-                    snapshot['price'].toString(),
+                    trip.price,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -308,7 +259,7 @@ class _SearchPageState extends State<SearchPage> {
                   const SizedBox(width: 10),
                   const Icon(Icons.person),
                   Text(
-                    snapshot['passengersCount'].toString(),
+                    trip.passengersCount.toString(),
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -322,8 +273,8 @@ class _SearchPageState extends State<SearchPage> {
                   snapshot['addedToCart']?
                   const Icon(Icons.check_circle, color: Colors.green, size: 20,)
                       :ElevatedButton.icon(
-                    onPressed: () {
-                      addToCart(snapshot);
+                    onPressed: () async {
+                      await addToCart(trip);
                       setState(() {
                         filteredTrips.remove(snapshot);
                       });
@@ -371,7 +322,6 @@ class _SearchPageState extends State<SearchPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       rideType = (ModalRoute.of(context)!.settings.arguments as Map)['rideType'];
-      FocusScope.of(context).requestFocus(rideType == "fromASU" ? dropoffFocus : pickupFocus);
     });
   }
 
@@ -420,156 +370,71 @@ class _SearchPageState extends State<SearchPage> {
         child: Stack(
           children: [
             Column(children: [
-              // const SizedBox(height: 10),
-              AbsorbPointer(
-                absorbing: rideType == "fromASU" ? true : false,
-                child: Opacity(
-                  opacity: rideType == "fromASU" ? 0.5 : 1,
-                  child: GooglePlaceAutoCompleteTextField(
-                    focusNode: pickupFocus,
-                    textEditingController: pickupTextEditingController,
-                    googleAPIKey: googleMapApiKeyAndroid,
-                    textStyle: const TextStyle(
-                      fontSize: 20,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    inputDecoration: InputDecoration(
-                      labelText: rideType == "fromASU"
-                          ? "Faculty of Engineering, Ain Shams University"
-                          : "Search Pickup Location",
-                      labelStyle:
-                          const TextStyle(fontSize: 20, color: Colors.white),
-                      contentPadding: const EdgeInsets.fromLTRB(22, 12, 0, 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(40),
-                        borderSide: const BorderSide(
-                          width: 2,
-                          color: Colors.purple,
-                        ),
-                      ),
-                      suffixIcon: const Icon(Icons.location_pin),
-                    ),
-                    boxDecoration: const BoxDecoration(
-                      color: Colors.black,
-                    ),
-                    debounceTime: 800,
-                    countries: const ["eg"],
-                    getPlaceDetailWithLatLng: (Prediction prediction) {
-                      print("placeDetails${prediction.lng}");
-                    },
-                    itemClick: (Prediction prediction) {
-                      pickupTextEditingController.text =
-                          prediction.description!;
-                      pickupTextEditingController.selection =
-                          TextSelection.fromPosition(TextPosition(
-                              offset: prediction.description!.length));
-                    },
-                    // if we want to make custom list background
-                    // listBackgroundColor: Colors.black,
-                    itemBuilder: (context, index, Prediction prediction) {
-                      return Card(
-                        color: Colors.white24,
-                        shape: RoundedRectangleBorder(
-                          side: const BorderSide(
-                            width: 1,
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.location_on),
-                              const SizedBox(
-                                width: 7,
-                              ),
-                              Expanded(
-                                  child: Text(prediction.description ?? "",
-                                      style: const TextStyle(
-                                          fontSize: 18, color: Colors.white))),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                    seperatedBuilder: const Divider(
-                      height: 1,
-                    ),
-                    isCrossBtnShown: rideType == "fromASU" ? false : true,
-                  ),
-                ),
-              ),
               const SizedBox(height: 5),
-              AbsorbPointer(
-                absorbing: rideType == "toASU" ? true : false,
-                child: Opacity(
-                  opacity: rideType == "toASU" ? 0.5 : 1,
-                  child: GooglePlaceAutoCompleteTextField(
-                    focusNode: dropoffFocus,
-                    textEditingController: dropoffTextEditingController,
-                    googleAPIKey: googleMapApiKeyAndroid,
-                    textStyle: const TextStyle(
-                      fontSize: 20,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
                       color: Colors.white,
-                      fontWeight: FontWeight.bold,
+                      borderRadius: BorderRadius.circular(35),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black,
+                          blurRadius: 5,
+                          spreadRadius: 0.5,
+                          offset: Offset(0, 5),
+                        )
+                      ],
                     ),
-                    inputDecoration: InputDecoration(
-                      labelText: rideType == "toASU"
-                          ? "Faculty of Engineering, Ain Shams University"
-                          : "Search Drop-off Location",
-                      labelStyle:
-                          const TextStyle(fontSize: 20, color: Colors.white),
-                      contentPadding: const EdgeInsets.fromLTRB(22, 12, 0, 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(40),
-                        borderSide: const BorderSide(
-                          width: 2,
-                          color: Colors.purple,
+                    child: CircleAvatar(
+                      backgroundColor: Colors.white,
+                      radius: 35,
+                      child: rideType=="fromASU"? const Image(
+                        image: AssetImage("assets/images/logo.png"),
+                      ):
+                      const Icon(
+                        Icons.home,
+                        color: Colors.black,
+                        size: 35,
+                      )
+                      ,
+                    ),
+                  ),
+                  const Icon(
+                    Icons.arrow_forward,
+                    color: Colors.white,
+                    size: 40,
+                  ),
+                  Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(35),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black,
+                            blurRadius: 5,
+                            spreadRadius: 0.5,
+                            offset: Offset(0, 5),
+                          )
+                        ],
+                      ),
+                      child: CircleAvatar(
+                        backgroundColor: Colors.white,
+                        radius: 35,
+                        child: rideType=="toASU"? const Image(
+                          image: AssetImage("assets/images/logo.png"),
+                        ):
+                        const Icon(
+                          Icons.home,
+                          color: Colors.black,
+                          size: 35,
+                        )
                         ),
                       ),
-                      suffixIcon: const Icon(Icons.location_pin),
-                    ),
-                    boxDecoration: const BoxDecoration(
-                      color: Colors.black,
-                    ),
-                    debounceTime: 800,
-                    countries: const ["eg"],
-                    getPlaceDetailWithLatLng: (Prediction prediction) {
-                      print("placeDetails${prediction.lng}");
-                    }, // this callback is called when isLatLngRequired is true
-                    itemClick: (Prediction prediction) {
-                      dropoffTextEditingController.text =
-                          prediction.description!;
-                      dropoffTextEditingController.selection =
-                          TextSelection.fromPosition(TextPosition(
-                              offset: prediction.description!.length));
-                    },
-                    // if we want to make custom list item builder
-                    itemBuilder: (context, index, Prediction prediction) {
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 24, 12, 24),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.location_on),
-                            const SizedBox(
-                              width: 7,
-                            ),
-                            Expanded(
-                                child: Text(prediction.description ?? "",
-                                    style: const TextStyle(
-                                        fontSize: 18, color: Colors.white))),
-                          ],
-                        ),
-                      );
-                    },
-                    seperatedBuilder: const Divider(
-                      height: 1,
-                    ),
-                    isCrossBtnShown: rideType == "toASU" ? false : true,
-                  ),
-                ),
+                ],
               ),
+              const SizedBox(height: 15),
               GestureDetector(
                 onTap: callDatePicker,
                 child: Row(
@@ -637,20 +502,17 @@ class _SearchPageState extends State<SearchPage> {
               ),
             ]),
             Positioned(
-              top: 42,
+              top: 22,
               right: 7,
               child: GestureDetector(
                 onTap: toggleRideType,
-                child: CircleAvatar(
+                child: const CircleAvatar(
                   backgroundColor: Colors.white,
                   radius: 20,
-                  child: Transform.rotate(
-                    angle: -1.5708,
-                    child: const Icon(
-                      Icons.compare_arrows_rounded,
-                      color: Colors.black,
-                      size: 40,
-                    ),
+                  child:  Icon(
+                    Icons.compare_arrows_rounded,
+                    color: Colors.black,
+                    size: 40,
                   ),
                 ),
               ),

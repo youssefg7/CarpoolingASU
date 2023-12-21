@@ -1,9 +1,13 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:carpool_flutter/data/Models/UserModel.dart';
+import 'package:carpool_flutter/data/Repositories/ReservationRepository.dart';
+import 'package:carpool_flutter/data/Repositories/TripRepository.dart';
+import 'package:carpool_flutter/data/Repositories/UserRepository.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../Utilities/utils.dart';
+import '../data/Models/ReservationModel.dart';
+import '../data/Models/TripModel.dart';
 
 class HistoryPage extends StatefulWidget {
   const HistoryPage({Key? key}) : super(key: key);
@@ -13,6 +17,9 @@ class HistoryPage extends StatefulWidget {
 }
 
 class _HistoryPageState extends State<HistoryPage> {
+  ReservationRepository reservationRepository = ReservationRepository();
+  TripRepository tripRepository = TripRepository();
+  UserRepository userRepository = UserRepository();
 
   List<Map<String, dynamic>> filteredTrips = [];
   
@@ -45,49 +52,39 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  Future<Map<String, dynamic>> getDriverData(driverId) async{
-    DocumentSnapshot doc = await FirebaseFirestore.instance.collection('users').doc(driverId).get();
-    return doc.data() as Map<String, dynamic>;
-  }
-
   Future<List<Map<String, dynamic>>> getTripsData() async {
-    var userId = FirebaseAuth.instance.currentUser?.uid;
-    QuerySnapshot pastReservations = await FirebaseFirestore.instance
-        .collection('reservations')
-        .where('userId', isEqualTo: userId)
-        .get();
-    List<String> pastTripsIds = pastReservations.docs.map((e) => e['tripId'].toString()).toList();
-    print(pastTripsIds);
-    QuerySnapshot querySnapshot;
-    if(pastTripsIds.isNotEmpty) {
-      querySnapshot = await FirebaseFirestore.instance
-          .collection('trips')
-          .where('uid', whereIn: pastTripsIds)
-          .get();
-    List<Map<String, dynamic>> trips = [];
-    for (QueryDocumentSnapshot doc in querySnapshot.docs) {
-      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-      data['id'] = doc.id;
-      Map<String, dynamic> driverData = await getDriverData(data['driverId']);
-      Map<String, dynamic> reservationData = pastReservations.docs.firstWhere((element) => element['tripId'] == data['id']).data() as Map<String, dynamic>;
-      data['driverName'] = driverData['username'];
-      data['driverPhone'] = driverData['phone'];
-      data['driverEmail'] = driverData['email'];
-      data['driverVehicleType'] = driverData['vehicleType'];
-      data['driverVehicleColor'] = driverData['vehicleColor'];
-      data['driverVehicleModel'] = driverData['vehicleModel'];
-      data['driverVehiclePlates'] = driverData['vehiclePlates'];
-      data['addedToCart'] = false;
-      data['paymentMethod'] = reservationData['paymentMethod'];
-      data['paymentStatus'] = reservationData['paymentStatus'];
-      data['requestStatus'] = reservationData['status'];
-
-      trips.add(data);
-      }
-      return trips;
-    }else{
-      return [];
+    List<Map<String, dynamic>> tripsData = [];
+    List<Reservation> pendingReservations = await reservationRepository.getReservations();
+    List<String> pendingReservationsIds = pendingReservations.map((e) => e.tripId).toList();
+    if(pendingReservationsIds.isEmpty){
+      return tripsData;
     }
+    List<Trip> trips = await tripRepository.getTripsByIds(pendingReservationsIds);
+    for (Reservation reservation in pendingReservations) {
+      Trip trip = trips.firstWhere((element) => element.id == reservation.tripId);
+      Student? driver = await userRepository.getUser(trip.driverId);
+      if(trip.date.isBefore(DateTime.now())){
+        trip.status = 'completed';
+        tripRepository.updateTrip(trip);
+        reservation.status = 'expired';
+        reservationRepository.updateReservation(reservation);
+      }
+      if(trip.rideType == 'toASU' && trip.date == DateTime.now().add(const Duration(days: 1)) && DateTime.now().hour > 22){
+        reservation.status = 'expired';
+        reservationRepository.updateReservation(reservation);
+      }
+      if(trip.rideType == 'fromASU' && trip.date == DateTime.now() && DateTime.now().hour > 13){
+        reservation.status = 'expired';
+        reservationRepository.updateReservation(reservation);
+      }
+      Map<String, dynamic> data = {
+        'trip': trip,
+        'reservation': reservation,
+        'driver': driver,
+      };
+      tripsData.add(data);
+    }
+    return tripsData;
   }
 
   List<Map<String, dynamic>> filterTripsByDate(List<Map<String, dynamic>> trips, DateTime? tripDate){
@@ -95,9 +92,9 @@ class _HistoryPageState extends State<HistoryPage> {
     if(tripDate == null){
       return trips;
     }
-    for(Map<String, dynamic> trip in trips){
-      if(trip['date'].toString().substring(0,10) == tripDate.toString().substring(0,10)){
-        filteredTrips.add(trip);
+    for(Map<String, dynamic> tripData in trips){
+      if(tripData['trip'].date == tripDate){
+        filteredTrips.add(tripData);
       }
     }
     return filteredTrips;
@@ -126,6 +123,9 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   Widget buildTripCard(Map<String, dynamic> snapshot, BuildContext context) {
+    Trip trip = snapshot['trip'];
+    Reservation reservation = snapshot['reservation'];
+    Student driver = snapshot['driver'];
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 5, 0, 5),
       child: Card(
@@ -150,9 +150,7 @@ class _HistoryPageState extends State<HistoryPage> {
                       const Icon(Icons.date_range_sharp),
                       const SizedBox(width: 10),
                       Text(
-                        snapshot['date']
-                            .toString()
-                            .substring(0, 10),
+                        Utils.formatDate(trip.date),
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -165,7 +163,7 @@ class _HistoryPageState extends State<HistoryPage> {
                       const Icon(Icons.watch_later_outlined),
                       const SizedBox(width: 10),
                       Text(
-                        snapshot['rideType'] == 'toASU'
+                        trip.rideType == 'toASU'
                             ? '07:30 AM'
                             : '05:30 PM',
                         style: const TextStyle(
@@ -184,7 +182,7 @@ class _HistoryPageState extends State<HistoryPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      "From: ${snapshot['start']}",
+                      "From: ${trip.start}",
                       style: const TextStyle(fontSize: 18),
                     ),
                   ),
@@ -197,7 +195,7 @@ class _HistoryPageState extends State<HistoryPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      "To: ${snapshot['destination']}",
+                      "To: ${trip.destination}",
                       style: const TextStyle(fontSize: 18),
                     ),
                   ),
@@ -210,7 +208,7 @@ class _HistoryPageState extends State<HistoryPage> {
                 children: [
                   const Icon(Icons.route),
                   Text(
-                    snapshot['distance'].toString(),
+                    trip.distance,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -219,7 +217,7 @@ class _HistoryPageState extends State<HistoryPage> {
                   const SizedBox(width: 10),
                   const Icon(Icons.drive_eta),
                   Text(
-                    snapshot['duration'].toString(),
+                    trip.duration,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -228,7 +226,7 @@ class _HistoryPageState extends State<HistoryPage> {
                   const SizedBox(width: 10),
                   const Icon(Icons.pending_outlined),
                   Text(
-                    snapshot['status'].toString().toUpperCase(),
+                    trip.status.toUpperCase(),
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -243,7 +241,7 @@ class _HistoryPageState extends State<HistoryPage> {
                 children: [
                   const Icon(Icons.attach_money),
                   Text(
-                    snapshot['price'].toString(),
+                    trip.price,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -251,32 +249,32 @@ class _HistoryPageState extends State<HistoryPage> {
                   ),
 
                   const SizedBox(width: 10),
-                  snapshot['paymentMethod']=='cash'?const Icon(Icons.payments_outlined)
+                  reservation.paymentMethod=='cash'?const Icon(Icons.payments_outlined)
                       :const Icon(Icons.credit_card_outlined),
                   Text(
-                    snapshot['paymentMethod'].toString().isEmpty?'Pending Payment'
-                        :snapshot['paymentMethod'].toString().toUpperCase(),
+                    reservation.paymentMethod.isEmpty?'Pending Payment'
+                        :reservation.paymentMethod.toUpperCase(),
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: snapshot['paymentMethod'].toString().isEmpty?Colors.red:Colors.white,
+                      color: reservation.paymentMethod.isEmpty?Colors.red:Colors.white,
                     ),
                   ),
                 ],
               ),
 
               const SizedBox(height: 10),
-              snapshot['paymentStatus'] == 'paid'
+              reservation.paymentStatus == 'paid'
                   ? Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     IconButton(icon: const Icon(Icons.phone), color: Colors.green,
                         onPressed: () async{
-                          await Utils.makePhoneCall(snapshot['driverPhone']!);
+                          await Utils.makePhoneCall(driver.phone);
                         }),
                     const Icon(Icons.person),
                     const SizedBox(width: 10),
-                    Text("${snapshot['driverName'].toString()} - ${snapshot['driverEmail'].toString().toUpperCase()}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
+                    Text("${driver.username} - ${driver.email.toUpperCase()}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
                   ]
               ):const SizedBox(),
               const SizedBox(height: 10),
@@ -294,13 +292,13 @@ class _HistoryPageState extends State<HistoryPage> {
                           ),
                         ),
                         Text(
-                          snapshot['requestStatus'].toString().toUpperCase(),
+                          reservation.status.toUpperCase(),
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: (snapshot['requestStatus'].toString() == 'rejected')
+                            color: (reservation.status == 'rejected')
                                 ? Colors.red
-                                : (snapshot['requestStatus'].toString() == 'accepted')
+                                : (reservation.status == 'accepted')
                                 ? Colors.green
                                 : Colors.white,
                           ),

@@ -1,27 +1,29 @@
-class TripModel{
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class Trip{
   String id;
   String driverId;
   String rideType;
   String start;
-  String end;
-  String date;
+  String destination;
+  DateTime date;
   String status;
-  String destinationLat;
-  String destinationLng;
-  String startLat;
-  String startLng;
+  double destinationLat;
+  double destinationLng;
+  double startLat;
+  double startLng;
   int gate;
   String price;
   String distance;
   String duration;
   int passengersCount;
 
-  TripModel({
+  Trip({
     required this.id,
     required this.driverId,
     required this.rideType,
     required this.start,
-    required this.end,
+    required this.destination,
     required this.date,
     required this.status,
     required this.destinationLat,
@@ -35,13 +37,13 @@ class TripModel{
     required this.passengersCount,
   });
 
-  TripModel.fromJSON(Map<String, dynamic> json)
+  Trip.fromJSON(Map<String, dynamic> json)
       : id = json['id'],
         driverId = json['driverId'],
         rideType = json['rideType'],
         start = json['start'],
-        end = json['end'],
-        date = json['date'],
+        destination = json['destination'],
+        date = json['date'].toDate(),
         status = json['status'],
         destinationLat = json['destinationLat'],
         destinationLng = json['destinationLng'],
@@ -52,14 +54,15 @@ class TripModel{
         distance = json['distance'],
         duration = json['duration'],
         passengersCount = json['passengersCount'];
+
   Map<String, dynamic> toJSON(){
     return {
       'id': id,
       'driverId': driverId,
       'rideType': rideType,
       'start': start,
-      'end': end,
-      'date': date,
+      'destination': destination,
+      'date': Timestamp.fromDate(date),
       'status': status,
       'destinationLat': destinationLat,
       'destinationLng': destinationLng,

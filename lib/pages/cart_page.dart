@@ -1,5 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:carpool_flutter/Utilities/utils.dart';
+import '../data/Models/TripModel.dart';
+import 'package:carpool_flutter/data/Models/ReservationModel.dart';
+import 'package:carpool_flutter/data/Repositories/TripRepository.dart';
+import '../data/Repositories/ReservationRepository.dart';
 import 'package:flutter/material.dart';
 
 class CartPage extends StatefulWidget {
@@ -10,45 +13,44 @@ class CartPage extends StatefulWidget {
 }
 
 class _CartPageState extends State<CartPage> {
-
+  ReservationRepository reservationRepository = ReservationRepository();
+  TripRepository tripRepository = TripRepository();
 
   Future<List<Map<String, dynamic>>> getTripsData() async {
-    var userId = FirebaseAuth.instance.currentUser?.uid;
-    QuerySnapshot pendingReservations = await FirebaseFirestore.instance
-        .collection('reservations')
-        .where('userId', isEqualTo: userId)
-        .where('paymentStatus', isEqualTo: 'pending')
-        .get();
-    List<String> pendingReservationsIds = pendingReservations.docs.map((e) => e['tripId'].toString()).toList();
-    QuerySnapshot querySnapshot;
-    if(pendingReservationsIds.isNotEmpty) {
-        querySnapshot = await FirebaseFirestore.instance
-            .collection('trips')
-            .where('uid', whereIn: pendingReservationsIds)
-            .where('status', isEqualTo: 'upcoming')
-            .get();
-        List<Map<String, dynamic>> trips = [];
-        for (QueryDocumentSnapshot doc in querySnapshot.docs) {
-          Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-          data['id'] = doc.id;
-          Map<String, dynamic> reservationData = pendingReservations.docs
-              .firstWhere((element) => element['tripId'] == data['id'])
-              .data() as Map<String, dynamic>;
-          data['paymentMethod'] = reservationData['paymentMethod'];
-          data['paymentStatus'] = reservationData['paymentStatus'];
-          data['requestStatus'] = reservationData['status'];
-          data['reservationId'] = reservationData['uid'];
-          print(reservationData['uid']);
-          if(data['date'].toString().substring(0,10).compareTo(DateTime.now().toString().substring(0,10)) < 0){
-            continue;
-          }
-
-          trips.add(data);
-        }
-        return trips;
-    }else{
-      return [];
+    List<Map<String, dynamic>> tripsData = [];
+    List<Reservation> pendingReservations = await reservationRepository.getReservationsByPaymentStatus('pending');
+    List<String> pendingReservationsIds = pendingReservations.map((e) => e.tripId).toList();
+    if(pendingReservationsIds.isEmpty){
+      return tripsData;
     }
+    List<Trip> trips = await tripRepository.getTripsByIdsAndStatus(pendingReservationsIds, 'upcoming');
+    for (Reservation reservation in pendingReservations) {
+      Trip trip = trips.firstWhere((element) => element.id == reservation.tripId);
+
+      if(trip.date.isBefore(DateTime.now())){
+        trip.status = 'completed';
+        tripRepository.updateTrip(trip);
+        reservation.status = 'expired';
+        reservationRepository.updateReservation(reservation);
+        continue;
+      }
+      if(trip.rideType == 'toASU' && trip.date == DateTime.now().add(const Duration(days: 1)) && DateTime.now().hour > 22){
+        reservation.status = 'expired';
+        reservationRepository.updateReservation(reservation);
+        continue;
+      }
+      if(trip.rideType == 'fromASU' && trip.date == DateTime.now() && DateTime.now().hour > 13){
+        reservation.status = 'expired';
+        reservationRepository.updateReservation(reservation);
+        continue;
+      }
+      Map<String, dynamic> data = {
+        'trip': trip,
+        'reservation': reservation,
+      };
+      tripsData.add(data);
+    }
+    return tripsData;
   }
 
 
@@ -75,6 +77,8 @@ class _CartPageState extends State<CartPage> {
   }
 
   Widget buildTripCard(Map<String, dynamic> snapshot, BuildContext context) {
+    Trip trip = snapshot['trip'];
+    Reservation reservation = snapshot['reservation'];
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 5, 0, 5),
       child: Card(
@@ -99,9 +103,7 @@ class _CartPageState extends State<CartPage> {
                       const Icon(Icons.date_range_sharp),
                       const SizedBox(width: 10),
                       Text(
-                        snapshot['date']
-                            .toString()
-                            .substring(0, 10),
+                        Utils.formatDate(trip.date),
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -114,7 +116,7 @@ class _CartPageState extends State<CartPage> {
                       const Icon(Icons.watch_later_outlined),
                       const SizedBox(width: 10),
                       Text(
-                        snapshot['rideType'] == 'toASU'
+                        trip.rideType == 'toASU'
                             ? '07:30 AM'
                             : '05:30 PM',
                         style: const TextStyle(
@@ -133,7 +135,7 @@ class _CartPageState extends State<CartPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      "From: ${snapshot['start']}",
+                      "From: ${trip.start}",
                       style: const TextStyle(fontSize: 18),
                     ),
                   ),
@@ -146,7 +148,7 @@ class _CartPageState extends State<CartPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      "To: ${snapshot['destination']}",
+                      "To: ${trip.destination}",
                       style: const TextStyle(fontSize: 18),
                     ),
                   ),
@@ -177,7 +179,7 @@ class _CartPageState extends State<CartPage> {
                     color: Colors.white,
                   ),
                   label: Text(
-                    "Pay ${snapshot['price']} to Request Trip",
+                    "Pay ${trip.price} to Request Trip",
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 20,

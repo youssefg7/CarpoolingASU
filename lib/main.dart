@@ -8,7 +8,6 @@ import 'package:carpool_flutter/pages/home_page.dart';
 import 'package:carpool_flutter/pages/payment_page.dart';
 import 'package:carpool_flutter/pages/profile_page.dart';
 import 'package:carpool_flutter/pages/search_page.dart';
-import 'package:carpool_flutter/pages/wallet_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -17,7 +16,6 @@ import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -29,7 +27,6 @@ Future<void> main() async {
   });
 
   runApp(const MyApp());
-
 }
 
 class MyApp extends StatelessWidget {
@@ -56,7 +53,6 @@ class MyApp extends StatelessWidget {
         '/search': (context) => const SearchPage(),
         '/profile': (context) => const ProfilePage(),
         '/payment': (context) => const PaymentPage(),
-        '/wallet': (context) => const WalletPage(),
       },
       initialRoute: '/',
     );

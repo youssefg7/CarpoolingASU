@@ -6,7 +6,6 @@ const String googleMapApiKeyBrowser = "AIzaSyBTqNN8VFu5aUbvSE2_M6SHBo5mJTrw-1k";
 
 const LatLng defaultLocation = LatLng(30.064554, 31.2788107);
 
-String username = "";
 
 const CameraPosition googlePlexInitialPosition = CameraPosition(
   target: defaultLocation,

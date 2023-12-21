@@ -1,14 +1,14 @@
 import 'dart:io';
-
+import 'package:carpool_flutter/data/Models/UserModel.dart';
+import 'package:carpool_flutter/data/Repositories/UserRepository.dart';
 import 'package:carpool_flutter/widgets/loading_dialog.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-
 import '../Utilities/utils.dart';
+import 'package:badges/badges.dart' as Badge;
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -18,7 +18,14 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  late Map<String,dynamic> user;
+  UserRepository userRepository = UserRepository();
+  Student user = Student(
+    id: '',
+    username: '',
+    email: '',
+    phone: '',
+    isDriver: false,
+  );
 
   bool updateMobilePressed = false;
   final _mobileFocusNode = FocusNode();
@@ -65,15 +72,10 @@ class _ProfilePageState extends State<ProfilePage> {
       child: const Text("Confirm Mobile Number"),
       onPressed: () {
         Navigator.of(context).pop();
-        FirebaseFirestore.instance
-            .collection('users')
-            .doc(FirebaseAuth.instance.currentUser!.uid)
-            .update({
-          'phone': mobileTextEditingController.text,
-        }).then((value) {
+        user.phone = mobileTextEditingController.text;
+        userRepository.updateCurrentUser(user).then((value) {
           Utils.displaySnack("Mobile number updated successfully", context);
           setState(() {
-            user['phone'] = mobileTextEditingController.text;
             updateMobilePressed = false;
             mobileTextEditingController.clear();
           });
@@ -124,7 +126,7 @@ class _ProfilePageState extends State<ProfilePage> {
       onPressed: () {
         Navigator.of(context).pop();
         AuthCredential credential = EmailAuthProvider.credential(
-          email: user['email'] + "@eng.asu.edu.eg",
+          email: user.email + "@eng.asu.edu.eg",
           password: oldPasswordTextEditingController.text,
         );
         FirebaseAuth.instance.currentUser!
@@ -136,7 +138,7 @@ class _ProfilePageState extends State<ProfilePage> {
               .then((value) {
             Utils.displaySnack("Password updated successfully", context);
           }).onError((error, stackTrace) => Utils.displaySnack(
-              "Error occured: \n ${error.toString()}", context));
+              "Error: \n ${error.toString()}", context));
           setState(() {
             changePasswordPressed = false;
             oldPasswordTextEditingController.clear();
@@ -166,12 +168,45 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  updateProfilePicture() async {
+    ImagePicker imagePicker = ImagePicker();
+    XFile? image = imagePicker.pickImage(source: ImageSource.gallery) as XFile?;
+    if (image == null) {
+      return;
+    }
+    showDialog(
+        context: context,
+        builder: (BuildContext context) => LoadingDialog(
+          messageText: 'Updating Profile Picture',
+        ));
+    Reference ref = FirebaseStorage.instance
+        .ref()
+        .child('profile_pictures/${FirebaseAuth.instance.currentUser!.uid}');
+    ref.putFile(File(image.path));
+    setState(() {
+      user.profilePicture = ref.getDownloadURL().toString();
+    });
+    if (await userRepository.updateCurrentUser(user)) {
+      Navigator.of(context).pop();
+      Utils.displaySnack("Profile picture updated successfully", context);
+    } else {
+      Navigator.of(context).pop();
+      Utils.displaySnack(
+          "Error occured while updating profile picture", context);
+    }
+  }
+
+  getUserInfo() async {
+    user = await userRepository.getCurrentUser();
+    setState(() {
+      user = user;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    setState(() {
-      user = (ModalRoute.of(context)!.settings.arguments
-      as Map<dynamic, dynamic>)['user'];
-    });
+    getUserInfo();
+
     return GestureDetector(
       onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
       child: Scaffold(
@@ -187,70 +222,50 @@ class _ProfilePageState extends State<ProfilePage> {
               Navigator.pushReplacementNamed(context, '/home');
             },
           ),
-
         ),
         body: ListView(children: [
           Column(
             children: [
               GestureDetector(
-                onTap: () async{
-                  if(!(await Utils.checkInternetConnection(context))){
+                onTap: () async {
+                  if (!(await Utils.checkInternetConnection(context))) {
                     return;
                   }
-                  try{
-                    ImagePicker imagePicker = ImagePicker();
-                    XFile? image = await imagePicker.pickImage(source: ImageSource.gallery);
-                    if(image == null) {
-                      return;
-                    }
-                    try{
-                      showDialog(
-                          context: context,
-                          builder: (BuildContext context) => LoadingDialog(messageText: 'Updating Profile Picture',));
-                      Reference ref = FirebaseStorage.instance
-                          .ref()
-                          .child(
-                          'profile_pictures/${FirebaseAuth.instance.currentUser!.uid}');
-                      await ref.putFile(File(image.path));
-                      String url = await ref.getDownloadURL();
-                      FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(FirebaseAuth.instance.currentUser!.uid)
-                          .update({
-                        'profilePicture': url,
-                      }).then((value) {
-                        setState(() {
-                          user['profilePicture'] = url;
-                        });
-                        Navigator.of(context).pop();
-                        Utils.displaySnack("Profile Picture updated successfully", context);
-                      });
-                    }
-                    catch(e){
-                    }
-                  }catch(es){
-
-                  }
+                  updateProfilePicture();
                 },
-                child: Padding(
-                  padding: const EdgeInsets.all(25),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.transparent,
-                      borderRadius: BorderRadius.circular(100),
-                      border: Border.all(
-                        color: Colors.white70,
-                        width: 10,
+                  child: Padding(
+                    padding: const EdgeInsets.all(25),
+                    child: Badge.Badge(
+                      position: Badge.BadgePosition.bottomEnd(),
+                      badgeStyle: const Badge.BadgeStyle(
+                        badgeColor: Colors.blueAccent,
+                        padding: EdgeInsets.all(10),
+                        shape: Badge.BadgeShape.circle,
                       ),
-                    ),
-                    child: ClipOval(
-                      child: Image(
-                        image: user['profilePicture'] != null && user['profilePicture'] != ''
-                            ? NetworkImage(user['profilePicture'])
-                            : const AssetImage("assets/images/avatarman.png") as ImageProvider,
-                        height: 150,
-                        width: 150,
-                        fit: BoxFit.cover,
+                      badgeContent: const Icon(
+                        Icons.edit,
+                        color: Colors.white,
+                      ),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(100),
+                        border: Border.all(
+                          color: Colors.white70,
+                          width: 10,
+                        ),
+                      ),
+                      child: ClipOval(
+                        child: Image(
+                          image: user.profilePicture != null &&
+                              user.profilePicture != ''
+                              ? NetworkImage(user.profilePicture!)
+                              : const AssetImage("assets/images/avatarman.png")
+                          as ImageProvider,
+                          height: 150,
+                          width: 150,
+                          fit: BoxFit.cover,
+                        ),
                       ),
                     ),
                   ),
@@ -299,7 +314,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                             Expanded(
                               child: Text(
-                                user['username'] ?? '',
+                                user.username,
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 25,
@@ -343,7 +358,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                             Expanded(
                               child: Text(
-                                user['email'] ?? '',
+                                user.email,
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 25,
@@ -421,7 +436,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     },
                                   ))
                                   : Text(
-                                user['phone'] ?? '',
+                                user.phone,
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 22,
@@ -436,7 +451,10 @@ class _ProfilePageState extends State<ProfilePage> {
                               width: 0,
                             )
                                 : IconButton(
-                              onPressed: () {
+                              onPressed: () async{
+                                if(!(await Utils.checkInternetConnection(context))){
+                                  return;
+                                }
                                 setState(() {
                                   updateMobilePressed = true;
                                 });

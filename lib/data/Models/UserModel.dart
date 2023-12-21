@@ -1,9 +1,9 @@
-class UserModel{
+class Student{
   String id;
   String username;
   String email;
   String phone;
-  String? image;
+  String? profilePicture;
   bool isDriver;
   String? vehicleType;
   String? vehicleModel;
@@ -11,13 +11,12 @@ class UserModel{
   String? vehiclePlates;
 
 
-
-  UserModel({
+  Student({
     required this.id,
     required this.username,
     required this.email,
     required this.phone,
-    this.image,
+    this.profilePicture,
     required this.isDriver,
     this.vehicleType,
     this.vehicleModel,
@@ -25,12 +24,12 @@ class UserModel{
     this.vehiclePlates
   });
 
-  UserModel.fromJson(Map<String, dynamic> json)
+  Student.fromJson(Map<String, dynamic> json)
       : id = json['id'],
         username = json['username'],
         email = json['email'],
         phone = json['phone'],
-        image = json['image'],
+        profilePicture = json['profilePicture'],
         isDriver = json['isDriver'],
         vehicleType = json['vehicleType'],
         vehicleModel = json['vehicleModel'],
@@ -43,7 +42,7 @@ class UserModel{
       'username': username,
       'email': email,
       'phone': phone,
-      'image': image,
+      'profilePicture': profilePicture,
       'isDriver': isDriver,
       'vehicleType': vehicleType,
       'vehicleModel': vehicleModel,
