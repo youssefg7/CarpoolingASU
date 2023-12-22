@@ -16,6 +16,12 @@ class _CartPageState extends State<CartPage> {
   ReservationRepository reservationRepository = ReservationRepository();
   TripRepository tripRepository = TripRepository();
 
+  void removeFromCart(Reservation reservation) async {
+    await reservationRepository.deleteReservation(reservation);
+    setState(() {});
+  }
+
+
   Future<List<Map<String, dynamic>>> getTripsData() async {
     List<Map<String, dynamic>> tripsData = [];
     List<Reservation> pendingReservations = await reservationRepository.getReservationsByPaymentStatus('pending');
@@ -157,7 +163,35 @@ class _CartPageState extends State<CartPage> {
               const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [ElevatedButton.icon(
+                children: [
+                  ElevatedButton(
+                    onPressed: (){removeFromCart(reservation);},
+                    child: Icon(Icons.delete_outline, color: Colors.white,),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      shape: RoundedRectangleBorder(
+                        side: const BorderSide(
+                          width: 2,
+                          color: Colors.red,
+                        ),
+                        borderRadius: BorderRadius.circular(40),
+                      ),
+                      padding:
+                      const EdgeInsets.all(10),
+                    ),
+                  ),
+                  trip.status == 'expired'?
+                  const Row(
+                    children: [
+                      Icon(Icons.clear, color: Colors.red,),
+                      SizedBox(width: 10),
+                      Text(
+                        "This trip has expired",
+                        style: TextStyle(fontSize: 18, color: Colors.red),
+                      ),
+                    ],
+                  ):
+                  ElevatedButton.icon(
                   onPressed: (){
                     Navigator.pushNamed(context, '/payment', arguments: snapshot).then((value) => setState(() {}));
                   },
@@ -167,7 +201,7 @@ class _CartPageState extends State<CartPage> {
                     shape: RoundedRectangleBorder(
                       side: const BorderSide(
                         width: 2,
-                        color: Colors.green,
+                        color: Colors.blue,
                       ),
                       borderRadius: BorderRadius.circular(40),
                     ),
@@ -179,7 +213,7 @@ class _CartPageState extends State<CartPage> {
                     color: Colors.white,
                   ),
                   label: Text(
-                    "Pay ${trip.price} to Request Trip",
+                    "Pay ${trip.price} to Request",
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 20,
@@ -217,7 +251,7 @@ class _CartPageState extends State<CartPage> {
         centerTitle: true,
       ),
       body: Column(children: [
-        SizedBox(
+        const SizedBox(
           height: 10
         ),
         Expanded(

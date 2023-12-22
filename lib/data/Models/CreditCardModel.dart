@@ -27,7 +27,7 @@ class CreditCard{
         cardHolderName = json['cardHolderName'],
         expiryMonth = json['expiryMonth'],
         expiryYear = json['expiryYear'],
-        cvv = json['cvvCode'];
+        cvv = json['cvv'];
 
   Map<String, dynamic> toJSON(){
     return {

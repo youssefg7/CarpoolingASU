@@ -53,6 +53,7 @@ class UserRepository {
 
   Future<void> deleteCurrentUser() async {
     // Delete user from shared preferences
+    await FirebaseAuth.instance.signOut();
     await SharedPreferences.getInstance().then((prefs) {
       prefs.remove('user');
     });

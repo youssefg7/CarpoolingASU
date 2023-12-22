@@ -1,32 +1,30 @@
-import 'dart:async';
-import 'dart:convert';
-import 'package:carpool_flutter/Utilities/global_var.dart';
 import 'package:carpool_flutter/data/Models/ReservationModel.dart';
 import 'package:carpool_flutter/data/Models/UserModel.dart';
+import 'package:carpool_flutter/data/Repositories/ReservationRepository.dart';
+import 'package:carpool_flutter/data/Repositories/TripRepository.dart';
 import 'package:carpool_flutter/data/Repositories/UserRepository.dart';
+import 'package:carpool_flutter/pages/view_route_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:google_places_flutter/model/prediction.dart';
-import 'package:sliding_up_panel/sliding_up_panel.dart';
-import '../Utilities/location_serives.dart';
+import 'package:intl/intl.dart';
 import '../Utilities/utils.dart';
-import 'package:flutter_polyline_points/flutter_polyline_points.dart';
-
 import '../data/Models/TripModel.dart';
-import '../data/Repositories/ReservationRepository.dart';
+import 'package:badges/badges.dart' as badge;
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({Key? key}) : super(key: key);
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
+  ReservationRepository reservationRepository = ReservationRepository();
   UserRepository userRepository = UserRepository();
+  TripRepository tripRepository = TripRepository();
+  String rideType = "toASU";
+  List<Map<String, dynamic>> filteredTrips = [];
+
   Student user = Student(
     id: '',
     username: '',
@@ -34,82 +32,6 @@ class _HomePageState extends State<HomePage> {
     phone: '',
     isDriver: false,
   );
-  ReservationRepository reservationRepository = ReservationRepository();
-  final Completer<GoogleMapController> googleMapControllerCompleter =
-      Completer<GoogleMapController>();
-  late GoogleMapController googleMapController;
-  Position? currentUserPosition;
-  LatLng? currentUserLatLng;
-  Set<Marker> markers = {};
-  Marker? origin;
-  Marker? destination;
-  PolylinePoints polylinePoints = PolylinePoints();
-  final List<Polyline> polylines = [];
-  List<LatLng> routeCoords = [];
-  GlobalKey<ScaffoldState> sandwichKey = GlobalKey<ScaffoldState>();
-  GlobalKey<ScaffoldState> cartKey = GlobalKey<ScaffoldState>();
-  bool serviceEnabled = false;
-  int price = 0;
-  String duration = "0 mins";
-  String distance = "0 kms";
-  late Prediction currentPrediction;
-  late LatLng pickupLatLng;
-  late LatLng dropoffLatLng;
-  PanelController panelController = PanelController();
-
-  FocusNode pickupFocus = FocusNode();
-  FocusNode dropoffFocus = FocusNode();
-  bool floatingButtonVisibility = true;
-  bool isTripView = false;
-  late Trip tripDetails;
-  late Student driverDetails;
-
-  bool addedToCart = false;
-
-  @override
-  void dispose() {
-    googleMapController.dispose();
-    super.dispose();
-  }
-
-  addToCart() async {
-    if(tripDetails.rideType == "fromASU"){
-      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${Utils.formatDate(tripDetails.date)} 01:00PM", context);
-    }
-    else{
-      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${Utils.formatDate(tripDetails.date)} 10:00PM", context);
-    }
-
-    Reservation reservation = Reservation(
-      id: '',
-      tripId: tripDetails.id,
-      userId: FirebaseAuth.instance.currentUser!.uid,
-      status: 'pending',
-      paymentStatus: 'pending',
-      paymentMethod: '',
-    );
-    reservationRepository.addReservation(reservation);
-
-    setState(() {
-      addedToCart = true;
-    });
-  }
-
-  updateMapStyle(GoogleMapController googleMapController, String mapStyleName) async {
-    ByteData byteData =
-        await rootBundle.load('lib/map_styles/${mapStyleName}_style.json');
-    var list = byteData.buffer
-        .asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
-    var decodedList = utf8.decode(list);
-    googleMapController.setMapStyle(decodedList);
-  }
-
-  getCurrentLocation() async {
-    currentUserPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.bestForNavigation);
-    currentUserLatLng =
-        LatLng(currentUserPosition!.latitude, currentUserPosition!.longitude);
-  }
 
   getUserInfo() async {
     user = await userRepository.getCurrentUser();
@@ -118,524 +40,750 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  addPolyLine(List<LatLng> polylineCoordinates) {
-    PolylineId id = const PolylineId("poly");
-    Polyline polyline = Polyline(
-      polylineId: id,
-      color: Colors.blue,
-      points: polylineCoordinates,
-      width: 4,
+  Future<List<Map<String, dynamic>>> getFullData(List<Trip>? trips) async{
+    Map<String, dynamic> data = {};
+    List<Map<String, dynamic>> fullData = [];
+    for(Trip trip in trips!){
+      data['trip'] = trip;
+      data['driver'] = await userRepository.getUser(trip.driverId);
+      data['addedToCart'] = false;
+      fullData.add(data);
+    }
+    return fullData;
+  }
+
+  void toggleRideType() {
+    setState(() {
+      rideType = rideType == "toASU" ? "fromASU" : "toASU";
+    });
+  }
+
+  DateTime? tripDate;
+  void callDatePicker() async {
+    DateTime? date = await getDate();
+    if(date == null){
+      return;
+    }
+    setState(() {
+      tripDate = date;
+    });
+  }
+
+  Future<DateTime?> getDate() {
+    DateTime now = DateTime.now();
+    DateTime initialDay;
+    if (rideType == "toASU") {
+      if (DateTime.now().isAfter(DateTime(DateTime.now().year,
+          DateTime.now().month, DateTime.now().day, 22, 00))) {
+        initialDay = DateTime(now.year, now.month, now.day + 2);
+      } else {
+        initialDay = DateTime(now.year, now.month, now.day + 1);
+      }
+    } else {
+      if (DateTime.now().isAfter(DateTime(DateTime.now().year,
+          DateTime.now().month, DateTime.now().day, 13, 00))) {
+        initialDay = DateTime(now.year, now.month, now.day + 1);
+      } else {
+        initialDay = now;
+      }
+    }
+
+    return showDatePicker(
+      context: context,
+      initialDate: initialDay,
+      firstDate: initialDay,
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (BuildContext context, Widget? child) {
+        return Theme(
+          data: ThemeData.dark(),
+          child: child!,
+        );
+      },
     );
-    setState(() {
-      polylines.add(polyline);
-    });
   }
 
-  void clearMap() {
-    setState(() {
-      markers.clear();
-      polylines.clear();
-    });
+  addToCart(Trip trip) async {
+    if(rideType == "fromASU"){
+      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${Utils.formatDate(trip.date)} 01:00PM", context);
+    }
+    else{
+      Utils.displaySnack("Trip Requested and Added to Cart, Confirm Payment before ${Utils.formatDate(trip.date)} 10:00PM", context);
+    }
+    Reservation reservation = Reservation(
+      userId: FirebaseAuth.instance.currentUser!.uid,
+      tripId: trip.id,
+      status: 'pending',
+      paymentStatus: 'pending',
+      paymentMethod: '',
+    );
+    await reservationRepository.addReservation(reservation);
   }
 
-  Future<void> addTripRoute(Trip trip) async {
-    FocusManager.instance.primaryFocus?.unfocus();
-    String rideType = trip.rideType;
-    if (rideType == "fromASU") {
-      pickupLatLng = defaultLocation;
-      dropoffLatLng = LatLng(trip.destinationLat, trip.destinationLng);
+
+  List<Map<String, dynamic>> filterTripsByDate(List<Map<String, dynamic>> tripsData, DateTime? tripDate){
+    List<Map<String, dynamic>> filteredTrips = [];
+    if(tripDate == null){
+      return tripsData;
     }
-    else {
-      pickupLatLng = LatLng(trip.startLat, trip.startLng);
-      dropoffLatLng = defaultLocation;
+    for(Map<String, dynamic> tripData in tripsData){
+      if(tripData['trip'].date.isBefore(DateTime.now())){
+        Trip t = tripData['trip'];
+        t.status = 'completed';
+        tripRepository.updateTrip(t);
+        continue;
+      }
+      else if(tripData['trip'].rideType == 'fromASU' && tripData['trip'].date == DateTime.now() && DateTime.now().hour > 13){
+        continue;
+      }else if(tripData['trip'].rideType == 'toASU' && tripData['trip'].date == DateTime.now() && DateTime.now().hour > 22){
+        continue;
+      }
+      if(tripData['trip'].date == tripDate){
+        filteredTrips.add(tripData);
+      }
     }
-    clearMap();
-    LocationServices.getDirections(pickupLatLng, dropoffLatLng)
-        .then((value) async {
-      addPolyLine(value["points"]);
-      await googleMapController.animateCamera(CameraUpdate.newLatLngBounds(value['bounds'], 30));
-      setState(() {
-        origin = Marker(
-          markerId: const MarkerId("origin"),
-          infoWindow: const InfoWindow(title: "Trip Start"),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          position: pickupLatLng,
-        );
-        destination = Marker(
-          markerId: const MarkerId("destination"),
-          infoWindow: const InfoWindow(title: "Trip End"),
-          icon:
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-          position: dropoffLatLng,
-        );
-        markers.add(origin!);
-        markers.add(destination!);
-        addPolyLine(value["points"]);
-      });
-      setState(() {
-        isTripView = true;
-      });
-    });
+    return filteredTrips;
+  }
+
+  Widget buildTripsList(List<Map<String, dynamic>> trips) {
+    if(trips.isEmpty){
+      return const Center(
+        child: Text(
+          "No Trips Match Date and Destination",
+          style: TextStyle(
+            fontSize: 20,
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      itemCount: trips.length,
+      itemBuilder: (context, index) {
+        var tripData = trips[index];
+        return buildTripCard(tripData, context);
+      },
+    );
+  }
+
+  Widget buildTripCard(Map<String, dynamic> snapshot, BuildContext context) {
+    Trip trip = snapshot['trip'];
+    return Padding(
+      padding: const EdgeInsets.all(3),
+      child: Card(
+        elevation: 10,
+        shadowColor: Colors.black,
+        color: Colors.black,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Colors.white24, width: 3),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.date_range_sharp),
+                      const SizedBox(width: 10),
+                      Text(
+                        Utils.formatDate(trip.date),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      const Icon(Icons.watch_later_outlined),
+                      const SizedBox(width: 10),
+                      Text(
+                        trip.rideType == 'toASU'
+                            ? '07:30 AM'
+                            : '05:30 PM',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(Icons.location_pin),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      "From: ${trip.start}",
+                      style: const TextStyle(fontSize: 18),
+                    ),
+                  ),
+                  trip.rideType == 'fromASU'? const Icon(Icons.door_sliding_outlined,):const SizedBox(),
+                  Text(
+                    trip.rideType == 'fromASU'
+                        ? trip.gate.toString()
+                        : '',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  )
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(Icons.location_pin),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      "To: ${trip.destination}",
+                      style: const TextStyle(fontSize: 18),
+                    ),
+                  ),
+                  trip.rideType == 'toASU'? const Icon(Icons.door_sliding_outlined,):const SizedBox(),
+                  Text(
+                    trip.rideType == 'toASU'
+                        ? trip.gate.toString()
+                        : '',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  )
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Icon(Icons.route),
+                  Text(
+                    trip.distance,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Icon(Icons.drive_eta),
+                  Text(
+                    trip.duration,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Icon(Icons.attach_money),
+                  Text(
+                    trip.price,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  snapshot['addedToCart']?
+                  const Icon(Icons.check_circle, color: Colors.green, size: 20,)
+                      :ElevatedButton.icon(
+                    onPressed: () async {
+                      await addToCart(trip);
+                      setState(() {
+                        filteredTrips.remove(snapshot);
+                      });
+                    },
+                    icon: const Icon(Icons.add_shopping_cart),
+                    label: const Text("Add to Cart"),
+                    style: ButtonStyle(
+                      backgroundColor: MaterialStateProperty.all(Colors.green),
+                      foregroundColor: MaterialStateProperty.all(Colors.white),
+                      shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18.0),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(context,
+                      MaterialPageRoute(
+                          builder: (context) => ViewRoutePage(trip: trip)))
+                      .then((value) {
+                        setState(() {});
+                      });
+                    },
+                    icon: const Icon(Icons.remove_red_eye),
+                    label: const Text("View Trip Route"),
+                    style: ButtonStyle(
+                      backgroundColor: MaterialStateProperty.all(Colors.blue),
+                      foregroundColor: MaterialStateProperty.all(Colors.white),
+                      shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18.0),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   void initState() {
     getUserInfo();
     super.initState();
-    getCurrentLocation();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (ModalRoute.of(context)!.settings.arguments != null) {
-        var args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
-        var tripToView = args['tripToView'] as Map<String, dynamic>;
-        Trip trip = tripToView['trip'];
-        addTripRoute(trip);
-        setState(() {
-          tripDetails = trip;
-          driverDetails = tripToView['driver'];
-          isTripView = true;
-          panelController.open();
-        });
-      }
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(
-          backgroundColor: isTripView?Colors.white:Colors.black,
-          title: isTripView? Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Row(children: [
-                  const Icon(Icons.date_range_sharp,
-                      color: Colors.black),
-                  const SizedBox(width: 5),
-                  Text(
-                      Utils.formatDate(tripDetails.date),
-                      style: const TextStyle(
+      floatingActionButton: GestureDetector(
+        onTap: () async{
+          if(!(await Utils.checkInternetConnection(context))) {
+            return;}
+          Navigator.pushNamed(context, "/cart");
+        },
+        child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(35),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.blueAccent,
+                  blurRadius: 5,
+                  spreadRadius: 0.1,
+                )
+              ],
+            ),
+            child: const CircleAvatar(
+              backgroundColor: Colors.white,
+              radius: 35,
+              child: Icon(
+                Icons.shopping_cart,
+                color: Colors.black,
+                size: 35,
+              ),
+            )),
+      ),
+      floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+      ),
+      drawer: Container(
+        width: 255,
+        color: Colors.black,
+        child: Drawer(
+          backgroundColor: Colors.white10,
+          child: ListView(padding: EdgeInsets.zero, children: [
+            const SizedBox(
+              height: 50,
+            ),
+            ListTile(
+              onTap: () {
+                Navigator.pushReplacementNamed(context, '/profile');
+              },
+              leading: const Icon(
+                Icons.person,
+                color: Colors.white,
+                size: 40,
+              ),
+              title: Text(
+                user.username,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+            const SizedBox(
+              height: 20,
+            ),
+            ListTile(
+              onTap: (){
+                Navigator.pushNamed(context, '/history');
+              },
+              leading: const Icon(
+                Icons.receipt_outlined,
+                color: Colors.white,
+                size: 34,
+              ),
+              title: const Text(
+                "Trips History",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+            const SizedBox(
+              height: 20,
+            ),
+            const Divider(
+              height: 1,
+              color: Colors.white,
+              thickness: 1,
+            ),
+            const SizedBox(
+              height: 10,
+            ),
+            ListTile(
+              onTap: () {
+                FirebaseAuth.instance.signOut();
+                userRepository.deleteCurrentUser();
+                Navigator.pushReplacementNamed(context, '/login');
+              },
+              leading: IconButton(
+                onPressed: () {},
+                icon: const Icon(
+                  Icons.logout,
+                  color: Colors.grey,
+                ),
+              ),
+              title: const Text(
+                "Logout",
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              Card(
+                elevation: 10,
+                shadowColor: Colors.black,
+                color: Colors.black26,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: const BorderSide(color: Colors.white24, width: 3),
+                ),
+                child: Padding(
+                    padding: const EdgeInsets.all(15),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "ASUFE CARPOOL COMMUNITY",
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black)),
-                ]),
-                Row(
-                  children: [
-                    const Icon(Icons.watch_later_outlined,
-                        color: Colors.black),
-                    const SizedBox(width: 5),
-                    Text(
-                        tripDetails.rideType ==
-                            'toASU'
-                            ? '07:30 AM'
-                            : '05:30 PM',
-                        style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black)),
-                  ],
-                )
-              ])
-              :const Text(
-            "ASUFE CARPOOL",
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          centerTitle: true,
-          leading: isTripView?
-          IconButton(
-              onPressed: (){
-                Navigator.pop(context);
-              },
-              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black))
-              :null,
-        ),
-        key: sandwichKey,
-        drawer: Container(
-          width: 255,
-          color: Colors.black,
-          child: Drawer(
-            backgroundColor: Colors.white10,
-            child: ListView(padding: EdgeInsets.zero, children: [
-              const SizedBox(
-                height: 50,
-              ),
-              ListTile(
-                onTap: () {
-                  Navigator.pushReplacementNamed(context, '/profile');
-                },
-                leading: const Icon(
-                  Icons.person,
-                  color: Colors.white,
-                  size: 40,
-                ),
-                title: Text(
-                  user.username,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                  ),
-                ),
-              ),
-              const SizedBox(
-                height: 20,
-              ),
-              ListTile(
-                onTap: (){
-                  Navigator.pushNamed(context, '/history');
-                },
-                leading: const Icon(
-                  Icons.receipt_outlined,
-                  color: Colors.white,
-                  size: 34,
-                ),
-                title: const Text(
-                  "Trips History",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                  ),
-                ),
-              ),
-              const SizedBox(
-                height: 20,
-              ),
-              const Divider(
-                height: 1,
-                color: Colors.white,
-                thickness: 1,
-              ),
-              const SizedBox(
-                height: 10,
-              ),
-              ListTile(
-                onTap: () {
-                  FirebaseAuth.instance.signOut();
-                  userRepository.deleteCurrentUser();
-                  Navigator.pushReplacementNamed(context, '/login');
-                },
-                leading: IconButton(
-                  onPressed: () {},
-                  icon: const Icon(
-                    Icons.logout,
-                    color: Colors.grey,
-                  ),
-                ),
-                title: const Text(
-                  "Logout",
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 18,
-                  ),
-                ),
-              ),
-            ]),
-          ),
-        ),
-        body: SlidingUpPanel(
-          controller: panelController,
-          color: Colors.black,
-          backdropEnabled: false,
-          backdropOpacity: 0.4,
-          backdropTapClosesPanel: true,
-          minHeight: 0,
-          maxHeight: 0.4 * MediaQuery.of(context).size.height,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
-          ),
-          onPanelClosed: () {
-            setState(() {
-              floatingButtonVisibility = true;
-            });
-          },
-          onPanelOpened: () {
-            setState(() {
-              floatingButtonVisibility = false;
-            });
-          },
-          body: GestureDetector(
-            onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-            child: Stack(children: [
-              GoogleMap(
-                padding: floatingButtonVisibility?const EdgeInsets.only(bottom: 80):EdgeInsets.only(bottom: (0.5 * MediaQuery.of(context).size.height)),
-                mapType: MapType.normal,
-                myLocationEnabled: true,
-                initialCameraPosition: googlePlexInitialPosition,
-                onCameraMove: (camera){},
-                markers: markers,
-                onMapCreated: (GoogleMapController controller) {
-                  setState(() {
-                    googleMapController = controller;
-                  });
-                  updateMapStyle(controller, 'normal');
-                  googleMapControllerCompleter.complete(controller);
-                },
-                polylines: Set.from(polylines),
-              ),
-              Positioned(
-                bottom: 100,
-                  child: floatingButtonVisibility?
-                  SizedBox(
-                    width: MediaQuery.of(context).size.width,
-                    height: 80,
-                    child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                    GestureDetector(
-                      onTap: () async{
-                        if(!(await Utils.checkInternetConnection(context))) {
-                                  return;}
-                        Navigator.pushNamed(context, "/cartPage");
-                      },
-                      child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(35),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black,
-                                blurRadius: 5,
-                                spreadRadius: 0.5,
-                                offset: Offset(0, 5),
-                              )
-                            ],
-                          ),
-                          child: const CircleAvatar(
-                            backgroundColor: Colors.black,
-                            radius: 35,
-                            child: Icon(
-                              Icons.shopping_cart,
-                              color: Colors.white,
-                              size: 35,
-                            ),
-                          )),
-                    ),
-                    GestureDetector(
-                        onTap: () async{
-                          if(!(await Utils.checkInternetConnection(context))) {
-                            return;}
-                          Navigator.pushReplacementNamed(context, "/search",
-                              arguments: {"rideType": "toASU"});
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(35),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black,
-                                blurRadius: 5,
-                                spreadRadius: 0.5,
-                                offset: Offset(0, 5),
-                              )
-                            ],
-                          ),
-                          child: const CircleAvatar(
-                            backgroundColor: Colors.white,
-                            radius: 35,
-                            child: Image(
-                              image: AssetImage("assets/images/logo.png"),
-                            ),
-                          ),
-                        )),
-                    GestureDetector(
-                      onTap: () async{
-                        if(!(await Utils.checkInternetConnection(context))) {
-                          return;}
-                        Navigator.pushReplacementNamed(context, "/search",
-                            arguments: {"rideType": "fromASU"});
-                      },
-                      child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(35),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black,
-                                blurRadius: 5,
-                                spreadRadius: 0.5,
-                                offset: Offset(0, 5),
-                              )
-                            ],
-                          ),
-                          child: const CircleAvatar(
-                            backgroundColor: Colors.white,
-                            radius: 35,
-                            child: Icon(
-                              Icons.home,
-                              color: Colors.black,
-                              size: 35,
-                            ),
-                          )),
-                    ),
-                ],
-              ),
-                  ):const SizedBox(),
-              )
-            ]),
-          ),
-          panel: (isTripView)
-              ? Card(
-              color: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: const BorderSide(color: Colors.white24, width: 2),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: ListView(
-                    children: [
-                      const Center(
-                        child: Text(
-                          "View Trip",
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          color: Colors.white,
                         ),
                       ),
-                      const SizedBox(
-                        height: 10,
-                      ),
-                      Row(children: [
-                        const Icon(Icons.location_pin, color: Colors.black),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text("From: ${tripDetails.start}",
-                              style: const TextStyle(
-                                  fontSize: 18, color: Colors.black)),
-                        ),
-                      ]),
                       const SizedBox(height: 5),
-                      Row(children: [
-                        const Icon(Icons.location_pin, color: Colors.black),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text("To: ${tripDetails.destination}",
-                              style: const TextStyle(
-                                  fontSize: 18, color: Colors.black)),
-                        ),
-                      ]),
-                      const SizedBox(height: 10),
                       Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.route, color: Colors.black),
-                            Text(
-                                tripDetails.distance,
-                                style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black)),
-                            const SizedBox(width: 10),
-                            const Icon(Icons.drive_eta, color: Colors.black),
-                            Text(
-                                tripDetails.duration,
-                                style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black)),
-                            const SizedBox(width: 10),
-                            const Icon(Icons.attach_money, color: Colors.black),
-                            Text(tripDetails.price,
-                                style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black)),
-                          ]),
-                      Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton(icon: const Icon(Icons.phone), color: Colors.green,
-                                onPressed: () async{
-                                  await Utils.makePhoneCall(driverDetails.phone);
-                                }),
-                            const Icon(Icons.person, color: Colors.black),
-                            const SizedBox(width: 10),
-                            Text(driverDetails.username, style: const TextStyle(fontSize: 18, color: Colors.black)),
-                          ]
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Icon(driverDetails.vehicleType=='Car'?Icons.directions_car:Icons.motorcycle_outlined, color: Colors.red),
-                          const SizedBox(width: 10),
-                          Text("${driverDetails.vehicleColor!} ${driverDetails.vehicleModel!}", style: const TextStyle(fontSize: 18, color: Colors.black)),
-                          const Text(" - ", style: TextStyle(fontSize: 18, color: Colors.black)),
-                          Text("(${driverDetails.vehiclePlates})", style: const TextStyle(fontSize: 18, color: Colors.black)),
+                          const Text(
+                            "Hello, ",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 35,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            user.username.split(" ")[0],
+                            style: TextStyle(
+                              color: Colors.lightBlue.shade300,
+                              fontSize: 35,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Text(" !",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 35,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      addedToCart?
-                      ElevatedButton.icon(
-                        onPressed: (){
-
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          shadowColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            side: const BorderSide(
-                              width: 2,
-                              color: Colors.green,
-                            ),
-                            borderRadius: BorderRadius.circular(40),
-                          ),
-                          padding:
-                          const EdgeInsets.fromLTRB(0, 10, 0, 10),
-                        ),
-                        icon: const Icon(
-                          Icons.check,
-                          color: Colors.white,
-                        ),
-                        label: const Text(
-                          "Added to Cart",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ):
-                      ElevatedButton.icon(
-                        onPressed: addedToCart?null:addToCart,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
-                          shadowColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            side: const BorderSide(
-                              width: 2,
-                              color: Colors.green,
-                            ),
-                            borderRadius: BorderRadius.circular(40),
-                          ),
-                          padding:
-                          const EdgeInsets.fromLTRB(0, 10, 0, 10),
-                        ),
-                        icon: const Icon(
-                          Icons.add_shopping_cart,
-                          color: Colors.white,
-                        ),
-                        label: const Text(
-                          "Add to Cart",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                      const SizedBox(height: 5),
+                    ])
+              ),
+              ),
+              const Padding(
+                padding: EdgeInsets.all(10),
+                child: Text(
+            "Request your next trip now:",
+            style: TextStyle(
+                fontSize: 25,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+            ),
+          ),
+              ),
+          badge.Badge(
+            position: badge.BadgePosition.topEnd(),
+            badgeStyle: const badge.BadgeStyle(
+              badgeColor: Colors.white,
+              shape: badge.BadgeShape.circle,
+            ),
+            badgeContent: GestureDetector(
+              onTap: toggleRideType,
+              child: const Icon(
+                Icons.compare_arrows_rounded,
+                color: Colors.black,
+                size: 40,
+              ),
+            ),
+            child: Card(
+              elevation: 10,
+              shadowColor: Colors.black,
+              color: Colors.black26,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: Colors.white24, width: 3),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(15),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(35),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black,
+                            blurRadius: 5,
+                            spreadRadius: 0.5,
+                            offset: Offset(0, 5),
+                          )
+                        ],
                       ),
-                    ],
+                      child: CircleAvatar(
+                        backgroundColor: Colors.white,
+                        radius: 35,
+                        child: rideType=="fromASU"? const Image(
+                          image: AssetImage("assets/images/logo.png"),
+                        ):
+                        const Icon(
+                          Icons.home,
+                          color: Colors.black,
+                          size: 35,
+                        )
+                        ,
+                      ),
+                    ),
+                    const Icon(
+                      Icons.arrow_forward,
+                      color: Colors.white,
+                      size: 40,
+                    ),
+                    Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(35),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black,
+                              blurRadius: 5,
+                              spreadRadius: 0.5,
+                              offset: Offset(0, 5),
+                            )
+                          ],
+                        ),
+                        child: CircleAvatar(
+                          backgroundColor: Colors.white,
+                          radius: 35,
+                          child: rideType=="toASU"? const Image(
+                            image: AssetImage("assets/images/logo.png"),
+                          ):
+                          const Icon(
+                            Icons.home,
+                            color: Colors.black,
+                            size: 35,
+                          )
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          GestureDetector(
+            onTap: callDatePicker,
+            child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.date_range,
+                    color: Colors.white70,
+                    size: 22,
                   ),
-              ))
-              : const SizedBox(),
-        ));
+                  const SizedBox(
+                    width: 5,
+                  ),
+                  Text(
+                    tripDate == null
+                        ? "Filter by Date"
+                        : DateFormat("E, dd MMM yyyy").format(tripDate!),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold),
+                  ),
+                  tripDate==null?const SizedBox()
+                      :IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white70, size: 20,),
+                    onPressed: (){
+                      setState(() {
+                        tripDate = null;
+                      });
+                    },
+                  )
+                ]),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 40),
+              child: Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: const BorderSide(color: Colors.white, width: 3),
+                ),
+                color: Colors.black26,
+                child: FutureBuilder<List<Reservation>>(
+                  future: reservationRepository.getReservations(),
+                  builder: (BuildContext context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    } else if (snapshot.hasError) {
+                      return const Center(
+                        child: Text(
+                          'Error Loading Available Trips',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      );
+                    } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          "No Trips Match Date and Destination",
+                          style: TextStyle(
+                            fontSize: 20,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+                    } else {
+                      List<String> ids = snapshot.data!.map((e) => e.tripId).toList();
+                      print("ids length: ${ids.length}");
+                      return StreamBuilder<List<Trip>>(
+                          stream: tripRepository.getTripsByIdsAndStatusStream(ids, 'upcoming', rideType),
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState == ConnectionState.waiting) {
+                              return const Center(child: CircularProgressIndicator());
+                            } else if (snapshot.hasError) {
+                              return const Center(
+                                child: Text(
+                                  'Error Loading Available Trips',
+                                  style: TextStyle(color: Colors.red),
+                                ),
+                              );
+                            } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                              return const Center(
+                                child: Text(
+                                  "No Trips Match Date and Destination",
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              );
+                            } else {
+                              List<Map<String, dynamic>> full = [];
+                              // exclude trips that user is driver
+                              List<Trip> trips = snapshot.data!.where((element) => element.driverId != user.id).toList();
+                              tripRepository.orderTripsByDate(trips, true);
+                              for(Trip trip in trips){
+                                Map<String, dynamic> data = {};
+                                data['trip'] = trip;
+                                data['addedToCart'] = false;
+                                full.add(data);
+                              }
+
+                              filteredTrips = filterTripsByDate(full, tripDate);
+                              return buildTripsList(filteredTrips);
+                            }
+                          },
+                      );
+                    }
+                  },
+
+    )
+
+
+
+                // FutureBuilder<List<Map<String, dynamic>>>(
+                //   future: getTripsData(),
+                //   builder: (context, snapshot) {
+                //     if (snapshot.connectionState == ConnectionState.waiting) {
+                //       return const Center(child: CircularProgressIndicator());
+                //     } else if (snapshot.hasError) {
+                //       return const Center(
+                //         child: Text(
+                //           'Error Loading Available Trips',
+                //           style: TextStyle(color: Colors.red),
+                //         ),
+                //       );
+                //     } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                //       return const Center(
+                //         child: Text(
+                //           "No Trips Match Date and Destination",
+                //           style: TextStyle(
+                //             fontSize: 20,
+                //             color: Colors.white,
+                //             fontWeight: FontWeight.bold,
+                //           ),
+                //         ),
+                //       );
+                //     } else {
+                //       filteredTrips = filterTripsByDate(snapshot.data!, tripDate);
+                //       return buildTripsList(filteredTrips);
+                //     }
+                //   },
+                // ),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 }

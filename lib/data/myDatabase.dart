@@ -68,17 +68,17 @@ class MyDB {
 
   Future<void> addReservation(Reservation reservation) async {
     final db = await database;
-    await db!.insert('reservation', reservation.toJSON());
+    await db!.insert('reservation', reservation.toJSON(), conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> updateTrip(Trip trip) async {
     final db = await database;
-    await db!.update('trip', trip.toJSON(), where: 'id = ?', whereArgs: [trip.id]);
+    await db!.update('trip', trip.toJSON(), where: 'id = ?', whereArgs: [trip.id], conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> updateReservation(Reservation reservation) async {
     final db = await database;
-    await db!.update('reservation', reservation.toJSON(), where: 'id = ?', whereArgs: [reservation.id]);
+    await db!.update('reservation', reservation.toJSON(), where: 'id = ?', whereArgs: [reservation.id], conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Reservation>> getReservations() async {
@@ -102,10 +102,43 @@ class MyDB {
     return res.map((e) => Trip.fromJSON(e)).toList();
   }
 
+  Future<void> batchInsertTrips(List<Trip> trips) async {
+    final db = await database;
+    var batch = db!.batch();
+    for (var trip in trips) {
+      var t = trip.toJSON();
+      t['date'] = t['date'].millisecondsSinceEpoch;
+      print(t);
+      batch.rawInsert(
+          '''INSERT OR REPLACE INTO trip(id, start, startLat, startLng, destination, destinationLat, destinationLng, price, distance, duration, driverId, status, passengersCount, date, rideType, gate) VALUES (
+            '${t['id']}',
+            '${t['start']}',
+            ${t['startLat']},
+            ${t['startLng']},
+            '${t['destination']}',
+            ${t['destinationLat']},
+            ${t['destinationLng']},
+            '${t['price']}',
+            '${t['distance']}',
+            '${t['duration']}',
+            '${t['driverId']}',
+            '${t['status']}',
+            ${t['passengersCount']},
+            ${t['date']},
+            '${t['rideType']}',
+            ${t['gate']}
+          )'''
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   Future<List<Trip>> getTripsByIdsAndStatus(List<String> ids, String status) async {
     final db = await database;
     var res = await db!.query('trip', where: 'id IN ? AND status = ?', whereArgs: [ids, status]);
-    for (var element in res) {
+    List<Map<String, dynamic>> modifiedRes = List.from(res);
+
+    for (var element in modifiedRes) {
       element['date'] = Timestamp.fromMillisecondsSinceEpoch(element['date'] as int);
     }
     return res.map((e) => Trip.fromJSON(e)).toList();
@@ -113,11 +146,28 @@ class MyDB {
 
   Future<List<Trip>> getTripsByIds(List<String> ids) async {
     final db = await database;
-    var res = await db!.query('trip', where: 'id IN ?', whereArgs: [ids]);
-    for (var element in res) {
+    for(var id in ids){
+      var x = await db?.query('trip');
+      print(x);
+    }
+
+    var res = await db!.query('trip', where: 'id IN (${ids.map((_) => '?').join(', ')})', whereArgs: ids);
+    if (res.isEmpty) {
+      print('empty');
+
+      return [];
+    }
+      // print(res);
+    List<Map<String, dynamic>> modifiedRes = List.from(res);
+    for (var element in modifiedRes) {
       element['date'] = Timestamp.fromMillisecondsSinceEpoch(element['date'] as int);
     }
     return res.map((e) => Trip.fromJSON(e)).toList();
+  }
+
+  Future<void> deleteReservation(Reservation reservation) async {
+    final db = await database;
+    await db!.delete('reservation', where: 'id = ?', whereArgs: [reservation.id]);
   }
 
 }

@@ -97,16 +97,10 @@ class _PaymentPageState extends State<PaymentPage> {
         centerTitle: true,
         backgroundColor: Colors.black,
       ),
-      // body: const Center(
-      //   child: Text('Payment Page'),
-      // ),
       body: Padding(
         padding: const EdgeInsets.all(8.0),
         child: ListView(
           children: [
-            const SizedBox(
-              height: 10,
-            ),
             Card(
               elevation: 10,
               shadowColor: Colors.black,
@@ -244,7 +238,7 @@ class _PaymentPageState extends State<PaymentPage> {
                   }
                   if (snapshot.hasError) {
                     return const Center(
-                      child: Text('Error'),
+                      child: Text('Error loading saved cards'),
                     );
                   }
                   else {
@@ -253,35 +247,48 @@ class _PaymentPageState extends State<PaymentPage> {
                     }
 
                     savedCards = snapshot.data!;
-                    return DropdownButtonFormField(
-                      decoration: InputDecoration(
-                        labelText: "Choose from Saved Credit Cards",
-                        labelStyle: const TextStyle(fontSize: 16),
-                        prefixIcon: const Icon(Icons.credit_card),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(40),
-                          borderSide: const BorderSide(
-                            width: 2,
-                            color: Colors.purple,
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(5, 0, 5, 0),
+                      child: DropdownButtonFormField(
+                        decoration: InputDecoration(
+                          suffixIcon: selectedCreditCard!=null?
+                          IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: (){
+                              setState(() {
+                                selectedCreditCard = null;
+                              });
+                            },)
+                              :null,
+                          labelText: selectedCreditCard!=null? "**** **** **** ${selectedCreditCard?.cardNumber.substring(12, 15)}"
+                                  :'Choose from Saved Credit Cards',
+                          labelStyle: const TextStyle(fontSize: 16),
+                          prefixIcon: const Icon(Icons.credit_card),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: const BorderSide(
+                              width: 2,
+                              color: Colors.purple,
+                            ),
                           ),
                         ),
-                      ),
-                      items: savedCards.map((e) =>
-                          DropdownMenuItem(
-                              value: e,
-                              child: Text(
-                                  "**** **** **** ${e.cardNumber.substring(
-                                      12, 15)}"))).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          selectedCreditCard = value;
-                        });
-                      },);
+                        items: savedCards.map((e) =>
+                            DropdownMenuItem(
+                                value: e,
+                                child: Text(
+                                    "**** **** **** ${e.cardNumber.substring(
+                                        12, 15)}"))).toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            selectedCreditCard = value!;
+                          });
+                        },),
+                    );
                   }
                 }
             )
             : const SizedBox(),
-            paymentMethod == 'creditCard'
+            paymentMethod == 'creditCard' && selectedCreditCard == null
                 ? Card(
                     elevation: 10,
                     shadowColor: Colors.black,

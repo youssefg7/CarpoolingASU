@@ -56,10 +56,13 @@ class _HistoryPageState extends State<HistoryPage> {
     List<Map<String, dynamic>> tripsData = [];
     List<Reservation> pendingReservations = await reservationRepository.getReservations();
     List<String> pendingReservationsIds = pendingReservations.map((e) => e.tripId).toList();
+    print(pendingReservationsIds);
     if(pendingReservationsIds.isEmpty){
       return tripsData;
     }
     List<Trip> trips = await tripRepository.getTripsByIds(pendingReservationsIds);
+      print("her1e");
+    print(trips.length);
     for (Reservation reservation in pendingReservations) {
       Trip trip = trips.firstWhere((element) => element.id == reservation.tripId);
       Student? driver = await userRepository.getUser(trip.driverId);
@@ -249,22 +252,67 @@ class _HistoryPageState extends State<HistoryPage> {
                   ),
 
                   const SizedBox(width: 10),
+                  reservation.paymentStatus != 'paid'?SizedBox():
                   reservation.paymentMethod=='cash'?const Icon(Icons.payments_outlined)
                       :const Icon(Icons.credit_card_outlined),
-                  Text(
-                    reservation.paymentMethod.isEmpty?'Pending Payment'
-                        :reservation.paymentMethod.toUpperCase(),
-                    style: TextStyle(
+                  reservation.paymentStatus == 'paid'?
+                  Text(reservation.paymentMethod.toUpperCase(),
+                    style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: reservation.paymentMethod.isEmpty?Colors.red:Colors.white,
+                      color: Colors.green,
                     ),
-                  ),
+                  )
+                  :ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      shadowColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        side: const BorderSide(
+                          width: 2,
+                          color: Colors.blue,
+                        ),
+                        borderRadius: BorderRadius.circular(40),
+                      ),),
+                      onPressed: (){
+                        Navigator.pushNamed(context, '/payment', arguments: snapshot).then((value) => setState(() {}));
+                      },
+                      icon: const Icon(Icons.payment_outlined),
+                      label: const Text('Pay Now', style: TextStyle(fontSize: 18),),)
                 ],
               ),
 
               const SizedBox(height: 10),
-              reservation.paymentStatus == 'paid'
+              reservation.paymentStatus == 'paid' && trip.status == 'upcoming'
+                  ? Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Icon(Icons.pending_actions_outlined),
+                  const Text(
+                    'Request Status:',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    reservation.status.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: (reservation.status == 'declined')
+                          ? Colors.red
+                          : (reservation.status == 'accepted')
+                          ? Colors.green
+                          : Colors.white,
+                    ),
+                  ),
+                ],
+              ):const SizedBox(),
+
+              const SizedBox(height: 10),
+              reservation.paymentStatus == 'paid' && reservation.status == 'accepted' && trip.status == 'upcoming'
                   ? Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
@@ -277,34 +325,6 @@ class _HistoryPageState extends State<HistoryPage> {
                     Text("${driver.username} - ${driver.email.toUpperCase()}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
                   ]
               ):const SizedBox(),
-              const SizedBox(height: 10),
-              snapshot['paymentStatus'] == 'paid'
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.pending_actions_outlined),
-                        const Text(
-                          'Request Status:',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          reservation.status.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: (reservation.status == 'rejected')
-                                ? Colors.red
-                                : (reservation.status == 'accepted')
-                                ? Colors.green
-                                : Colors.white,
-                          ),
-                        ),
-                      ],
-                    ):const SizedBox(),
             ],
           ),
         ),
@@ -395,6 +415,7 @@ class _HistoryPageState extends State<HistoryPage> {
                       );
                     } else {
                       filteredTrips = filterTripsByDate(snapshot.data!, tripDate);
+                      print(filteredTrips.length);
                       return buildTripsList(filteredTrips);
                     }
                   },

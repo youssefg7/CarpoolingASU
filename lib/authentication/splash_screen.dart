@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'package:carpool_flutter/authentication/login_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../pages/home_page.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,11 +15,9 @@ class _SplashScreenState extends State<SplashScreen> {
     Timer(const Duration(seconds: 3), () async {
       if (FirebaseAuth.instance.currentUser != null &&
           FirebaseAuth.instance.currentUser!.emailVerified) {
-        Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (c) => const HomePage()));
+        Navigator.pushReplacementNamed(context, '/home');
       } else {
-        Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (c) => const LoginScreen()));
+        Navigator.pushReplacementNamed(context, '/login');
       }});}
 
   @override

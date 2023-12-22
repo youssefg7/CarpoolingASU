@@ -170,7 +170,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   updateProfilePicture() async {
     ImagePicker imagePicker = ImagePicker();
-    XFile? image = imagePicker.pickImage(source: ImageSource.gallery) as XFile?;
+    XFile? image = await imagePicker.pickImage(source: ImageSource.gallery);
+    print("here ${image?.path}");
     if (image == null) {
       return;
     }
@@ -182,6 +183,7 @@ class _ProfilePageState extends State<ProfilePage> {
     Reference ref = FirebaseStorage.instance
         .ref()
         .child('profile_pictures/${FirebaseAuth.instance.currentUser!.uid}');
+
     ref.putFile(File(image.path));
     setState(() {
       user.profilePicture = ref.getDownloadURL().toString();
@@ -204,14 +206,18 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  void initState() {
     getUserInfo();
+    super.initState();
+  }
 
+  @override
+  Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
       child: Scaffold(
         appBar: AppBar(
-          title: const Text("Profile"),
+          title: Text("${user.username.split(" ")[0]}'s Profile"),
           centerTitle: true,
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -242,8 +248,11 @@ class _ProfilePageState extends State<ProfilePage> {
                         padding: EdgeInsets.all(10),
                         shape: Badge.BadgeShape.circle,
                       ),
-                      badgeContent: const Icon(
-                        Icons.edit,
+                      badgeContent: Icon(
+                        (user.profilePicture != null &&
+                            user.profilePicture != '')?
+                        Icons.edit
+                        :Icons.add,
                         color: Colors.white,
                       ),
                     child: Container(
@@ -256,16 +265,19 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                       child: ClipOval(
-                        child: Image(
-                          image: user.profilePicture != null &&
-                              user.profilePicture != ''
-                              ? NetworkImage(user.profilePicture!)
-                              : const AssetImage("assets/images/avatarman.png")
-                          as ImageProvider,
+                        child: (user.profilePicture != null &&
+                            user.profilePicture != '')?
+                        Image(
+                          image: NetworkImage(user.profilePicture!),
                           height: 150,
                           width: 150,
                           fit: BoxFit.cover,
-                        ),
+                        ):
+                        const Icon(
+                          Icons.person,
+                          color: Colors.white70,
+                          size: 150,)
+                        ,
                       ),
                     ),
                   ),
@@ -452,6 +464,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             )
                                 : IconButton(
                               onPressed: () async{
+
                                 if(!(await Utils.checkInternetConnection(context))){
                                   return;
                                 }
@@ -653,7 +666,10 @@ class _ProfilePageState extends State<ProfilePage> {
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: () {
+                              onPressed: () async{
+                              if(!(await Utils.checkInternetConnection(context))){
+                              return;
+                              }
                               setState(() {
                                 changePasswordPressed = true;
                               });

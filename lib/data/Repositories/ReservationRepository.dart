@@ -33,6 +33,13 @@ class ReservationRepository{
     });
   }
 
+  Future<void> deleteReservation(Reservation reservation) async{
+    await _firestore.collection('reservations').doc(reservation.id).delete()
+        .then((value) {
+      _database.deleteReservation(reservation);
+    });
+  }
+
   Future<List<Reservation>> getReservations() async{
     var connection = await Connectivity().checkConnectivity();
     if(!(connection == ConnectivityResult.mobile || connection == ConnectivityResult.wifi)){
@@ -40,7 +47,9 @@ class ReservationRepository{
     }
     List<Reservation> reservations = [];
     await _firestore.collection('reservations').where('userId', isEqualTo: currentUserId).get().then((value) {
+      print(currentUserId);
       for (var element in value.docs) {
+        print(element.data());
         reservations.add(Reservation.fromJSON(element.data()));
         _database.addReservation(Reservation.fromJSON(element.data()));
       }
@@ -65,6 +74,8 @@ class ReservationRepository{
           return value.docs.map((e) => Reservation.fromJSON(e.data())).toList();
     });
   }
+
+
 
 
 }

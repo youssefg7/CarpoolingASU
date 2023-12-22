@@ -1,6 +1,7 @@
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-const String googleMapApiKeyAndroid = "AIzaSyAPhZVDY0YJjn1wiBjISM-oJqpToPMBatk";
+// const String googleMapApiKeyAndroid = "AIzaSyAPhZVDY0YJjn1wiBjISM-oJqpToPMBatk";
+const String googleMapApiKeyAndroid = "AIzaSyBQ1b6LpCreONPJY54cH_Cll7EmF0fwac8";
 const String googleMapApiKeyIos = "AIzaSyA5yBMwjGB5eyJdX1I90G4kLvZduxqEAVc";
 const String googleMapApiKeyBrowser = "AIzaSyBTqNN8VFu5aUbvSE2_M6SHBo5mJTrw-1k";
 
